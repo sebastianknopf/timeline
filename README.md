@@ -4,7 +4,7 @@ Base Docker and service setup for the timeline project with:
 
 - processor (Python service, prepared for ETL)
 - PostgreSQL
-- optional observability stack via the grafana profile (Grafana, Loki, Promtail)
+- optional observability stack via profiles (`grafana` and `monitoring`)
 
 ## Requirements
 
@@ -14,7 +14,8 @@ Base Docker and service setup for the timeline project with:
 
 - docker-compose.yml: Service orchestration
 - processor/: Python project in src layout with pyproject.toml, Alembic, and setuptools_scm
-- monitoring/: Configuration for Grafana, Loki, and Promtail
+- grafana/: Grafana provisioning and dashboards
+- monitoring/: Monitoring profile configuration for Loki and Promtail
 
 ## Services
 
@@ -33,17 +34,38 @@ docker compose up --build
 
 ### grafana Profile
 
-Extends the stack with:
+Starts central Grafana with full provisioning (datasources and dashboard):
 
 - grafana
-- loki
-- promtail
 
 Run:
 
 ```bash
 docker compose --profile grafana up --build
 ```
+
+### monitoring Profile
+
+Starts technical monitoring containers only:
+
+- loki
+- promtail
+
+Run:
+
+```bash
+docker compose --profile monitoring up --build
+```
+
+### Combined Profiles
+
+For log queries in Grafana, run both profiles together:
+
+```bash
+docker compose --profile grafana --profile monitoring up --build
+```
+
+If only `grafana` is active, Loki-based queries are not available until `monitoring` is also active.
 
 ## Environment and Secrets
 
