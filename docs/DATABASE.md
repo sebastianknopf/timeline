@@ -1,0 +1,172 @@
+# Database Architecture
+
+This document defines the database schema and model for Timeline.
+
+For the overall system architecture, see [docs/ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Modeling Principle
+
+The database uses one central fact table and two dimensions:
+
+- fact table: `fact_stop_times`
+- dimensions: `dim_stops`, `dim_trips`
+
+`instance_id` is mandatory in all tables and is always part of relational keys. This enforces tenant-like isolation so data from different instances remains separated.
+
+## Type Rules
+
+These type rules are applied consistently:
+
+- date fields: `date`
+- time fields: `timestamptz`
+- distance fields: `double precision`
+- all remaining fields: `text`
+
+Stop coordinates are also stored as `double precision`:
+
+- `stop_lat`
+- `stop_lon`
+
+Applied date and time fields:
+
+- date: `operation_day_date`
+- timestamps:
+  - `nom_arrival_time`
+  - `nom_departure_time`
+  - `act_arrival_time`
+  - `act_departure_time`
+  - `nom_start_time`
+  - `nom_end_time`
+  - `act_start_time`
+  - `act_end_time`
+
+Distance and coordinate fields:
+
+- `distance_from_start`
+- `nom_total_distance`
+- `act_total_distance`
+- `stop_lat`
+- `stop_lon`
+
+## Table Definitions
+
+### dim_stops
+
+| Column | Type | Nullable | Notes |
+| --- | --- | --- | --- |
+| `instance_id` | `text` | no | Instance scope key |
+| `stop_id` | `text` | no | Stop identifier within instance |
+| `stop_name` | `text` | no | Human-readable stop name |
+| `stop_lat` | `double precision` | no | Latitude |
+| `stop_lon` | `double precision` | no | Longitude |
+
+Primary key:
+
+- (`instance_id`, `stop_id`)
+
+### dim_trips
+
+| Column | Type | Nullable | Notes |
+| --- | --- | --- | --- |
+| `instance_id` | `text` | no | Instance scope key |
+| `operation_day_date` | `date` | no | Operation day |
+| `trip_id` | `text` | no | Trip identifier within instance/day |
+| `route_id` | `text` | no | Route identifier |
+| `route_name` | `text` | no | Route name |
+| `concessionare_id` | `text` | no | Concessionaire identifier |
+| `concessionaire_name` | `text` | no | Concessionaire name |
+| `operator_id` | `text` | no | Operator identifier |
+| `operator_name` | `text` | no | Operator name |
+| `nom_start_time` | `timestamptz` | no | Planned start timestamp |
+| `nom_end_time` | `timestamptz` | no | Planned end timestamp |
+| `act_start_time` | `timestamptz` | no | Actual start timestamp |
+| `act_end_time` | `timestamptz` | no | Actual end timestamp |
+| `nom_start_stop_id` | `text` | no | Planned trip start stop |
+| `nom_end_stop_id` | `text` | no | Planned trip end stop |
+| `nom_total_distance` | `double precision` | no | Planned total trip distance |
+| `act_total_distance` | `double precision` | no | Actual total trip distance |
+| `schedule_relationship` | `text` | no | Default: `UNKNOWN` |
+
+Primary key:
+
+- (`instance_id`, `operation_day_date`, `trip_id`)
+
+Foreign keys:
+
+- (`instance_id`, `nom_start_stop_id`) references `dim_stops` (`instance_id`, `stop_id`)
+- (`instance_id`, `nom_end_stop_id`) references `dim_stops` (`instance_id`, `stop_id`)
+
+### fact_stop_times
+
+| Column | Type | Nullable | Notes |
+| --- | --- | --- | --- |
+| `instance_id` | `text` | no | Instance scope key |
+| `operation_day_date` | `date` | no | Operation day |
+| `trip_id` | `text` | no | Trip identifier |
+| `stop_id` | `text` | no | Stop identifier |
+| `distance_from_start` | `double precision` | no | Distance from trip origin |
+| `nom_arrival_time` | `timestamptz` | no | Planned arrival timestamp |
+| `nom_departure_time` | `timestamptz` | no | Planned departure timestamp |
+| `act_arrival_time` | `timestamptz` | no | Actual arrival timestamp |
+| `act_departure_time` | `timestamptz` | no | Actual departure timestamp |
+| `schedule_relationship` | `text` | no | Default: `UNKNOWN` |
+
+Primary key:
+
+- (`instance_id`, `operation_day_date`, `trip_id`, `stop_id`, `distance_from_start`)
+
+Foreign keys:
+
+- (`instance_id`, `stop_id`) references `dim_stops` (`instance_id`, `stop_id`)
+- (`instance_id`, `operation_day_date`, `trip_id`) references `dim_trips` (`instance_id`, `operation_day_date`, `trip_id`)
+
+Design note:
+
+- The fact table key above assumes `distance_from_start` disambiguates repeated stops on one trip for one operation day. If repeated stops can share the same distance, add an explicit sequence field in a later schema revision.
+
+## Model Relationships
+
+Cardinality:
+
+- one `dim_stops` row can be referenced by many `fact_stop_times` rows
+- one `dim_trips` row can be referenced by many `fact_stop_times` rows
+- one `dim_stops` row can also be referenced by many `dim_trips` rows through `nom_start_stop_id` and `nom_end_stop_id`
+
+Logical model flow:
+
+1. `dim_stops` contains normalized stop metadata per instance.
+2. `dim_trips` contains trip-level aggregates per instance and operation day.
+3. `fact_stop_times` contains stop-time facts linked to both dimensions.
+
+## Index Strategy
+
+The following indexes should be created to keep joins and instance-scoped filtering efficient.
+
+### Required indexes from primary keys
+
+- `dim_stops`: pk (`instance_id`, `stop_id`)
+- `dim_trips`: pk (`instance_id`, `operation_day_date`, `trip_id`)
+- `fact_stop_times`: pk (`instance_id`, `operation_day_date`, `trip_id`, `stop_id`, `distance_from_start`)
+
+### Additional recommended indexes
+
+`dim_stops`:
+
+- idx for stop-name lookups per instance: (`instance_id`, `stop_name`)
+
+`dim_trips`:
+
+- idx for route-based filtering per instance/day: (`instance_id`, `operation_day_date`, `route_id`)
+- idx for operator-based filtering per instance/day: (`instance_id`, `operation_day_date`, `operator_id`)
+- idx for concessionaire-based filtering per instance/day: (`instance_id`, `operation_day_date`, `concessionare_id`)
+
+`fact_stop_times`:
+
+- idx for stop-centric lookups per instance/day: (`instance_id`, `operation_day_date`, `stop_id`)
+- idx for trip timelines per instance/day: (`instance_id`, `operation_day_date`, `trip_id`)
+- idx for actual-time range queries: (`instance_id`, `act_arrival_time`)
+- idx for actual-departure range queries: (`instance_id`, `act_departure_time`)
+
+Indexing principle:
+
+- Keep `instance_id` as the leading index column whenever possible to guarantee tenant-pruned execution paths.

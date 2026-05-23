@@ -1,0 +1,16 @@
+instance:
+  - id: "demo-tenant"
+    pipeline:
+      - id: "nominal-main"
+        type: "nominal"
+        cron: "0 2 * * *"
+        endpoint: "https://api.example.com/schedule"
+        authentication:
+          token: "${NOMINAL_API_TOKEN}"
+      - id: "realtime-main"
+        type: "realtime"
+        cron: "* * * * *"
+        endpoint: "https://api.example.com/realtime"
+        authentication:
+          username: "${REALTIME_API_USER}"
+          password: "${REALTIME_API_PASSWORD}"

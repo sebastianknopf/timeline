@@ -1,5 +1,12 @@
 # Copilot Instructions
 
+## Documentation Behavior
+
+- Treat the documentation as the primary definition of the project structure and architecture.
+- When the task is about project shape, service layout, ports, or deployment topology, update the architecture docs first instead of generating code.
+- Keep the high-level repository architecture in `docs/ARCHITECTURE.md` and service-specific architecture details in dedicated follow-up documents such as `docs/PROCESSOR.md`.
+- Prefer cross-links between documentation files so the repository overview stays navigable.
+
 ## Language Policy
 
 - Use English for all source code, comments, identifiers, tests, documentation, and commit messages.
