@@ -23,3 +23,10 @@
 - Store secrets only in `.env` (local, untracked).
 - Keep `.env.example` as the committed template with placeholder values.
 - Any new service requiring credentials must consume them from environment variables.
+
+## Processor Code Standards
+
+- Use type hints everywhere in processor code, including function signatures, class attributes, return values, and public constants.
+- Treat missing type hints as a correctness issue and add or refine typing during changes.
+- Implement processor features using object-oriented design.
+- Prefer explicit classes and interfaces for pipelines, scheduler components, clients, and loaders over procedural-only implementations.

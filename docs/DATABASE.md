@@ -73,18 +73,18 @@ Primary key:
 | `trip_id` | `text` | no | Trip identifier within instance/day |
 | `route_id` | `text` | no | Route identifier |
 | `route_name` | `text` | no | Route name |
-| `concessionare_id` | `text` | no | Concessionaire identifier |
+| `concessionaire_id` | `text` | no | Concessionaire identifier |
 | `concessionaire_name` | `text` | no | Concessionaire name |
-| `operator_id` | `text` | no | Operator identifier |
-| `operator_name` | `text` | no | Operator name |
+| `operator_id` | `text` | yes | Operator identifier |
+| `operator_name` | `text` | yes | Operator name |
 | `nom_start_time` | `timestamptz` | no | Planned start timestamp |
 | `nom_end_time` | `timestamptz` | no | Planned end timestamp |
-| `act_start_time` | `timestamptz` | no | Actual start timestamp |
-| `act_end_time` | `timestamptz` | no | Actual end timestamp |
+| `act_start_time` | `timestamptz` | yes | Actual start timestamp |
+| `act_end_time` | `timestamptz` | yes | Actual end timestamp |
 | `nom_start_stop_id` | `text` | no | Planned trip start stop |
 | `nom_end_stop_id` | `text` | no | Planned trip end stop |
 | `nom_total_distance` | `double precision` | no | Planned total trip distance |
-| `act_total_distance` | `double precision` | no | Actual total trip distance |
+| `act_total_distance` | `double precision` | yes | Actual total trip distance |
 | `schedule_relationship` | `text` | no | Default: `UNKNOWN` |
 
 Primary key:
@@ -107,8 +107,8 @@ Foreign keys:
 | `distance_from_start` | `double precision` | no | Distance from trip origin |
 | `nom_arrival_time` | `timestamptz` | no | Planned arrival timestamp |
 | `nom_departure_time` | `timestamptz` | no | Planned departure timestamp |
-| `act_arrival_time` | `timestamptz` | no | Actual arrival timestamp |
-| `act_departure_time` | `timestamptz` | no | Actual departure timestamp |
+| `act_arrival_time` | `timestamptz` | yes | Actual arrival timestamp |
+| `act_departure_time` | `timestamptz` | yes | Actual departure timestamp |
 | `schedule_relationship` | `text` | no | Default: `UNKNOWN` |
 
 Primary key:
@@ -158,7 +158,7 @@ The following indexes should be created to keep joins and instance-scoped filter
 
 - idx for route-based filtering per instance/day: (`instance_id`, `operation_day_date`, `route_id`)
 - idx for operator-based filtering per instance/day: (`instance_id`, `operation_day_date`, `operator_id`)
-- idx for concessionaire-based filtering per instance/day: (`instance_id`, `operation_day_date`, `concessionare_id`)
+- idx for concessionaire-based filtering per instance/day: (`instance_id`, `operation_day_date`, `concessionaire_id`)
 
 `fact_stop_times`:
 

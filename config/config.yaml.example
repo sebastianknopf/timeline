@@ -2,12 +2,17 @@ instance:
   - id: "demo-tenant"
     pipeline:
       - id: "nominal-main"
+        name: "gtfs"
         type: "nominal"
         cron: "0 2 * * *"
         endpoint: "https://api.example.com/schedule"
+        parameters:
+          fallback_agency_id: "UNKNOWN-AGENCY"
+          fallback_agency_name: "Unknown Agency"
         authentication:
           token: "${NOMINAL_API_TOKEN}"
       - id: "realtime-main"
+        name: "gtfsrt-tripupdates"
         type: "realtime"
         cron: "* * * * *"
         endpoint: "https://api.example.com/realtime"

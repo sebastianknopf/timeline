@@ -26,10 +26,14 @@ Each instance defines:
 Each pipeline object defines:
 
 - `id`: pipeline identifier used in logs
+- `name`: pipeline definition name used to select implementation behavior (for example `gtfs` or `gtfsrt-tripupdates`)
 - `type`: pipeline type, expected values are `nominal` or `realtime`
 - `cron`: cron expression used to schedule this pipeline
 - `endpoint`: source endpoint URL or address
 - `authentication` (optional): authentication object when required by the endpoint
+- `parameters` (optional): object containing arbitrary pipeline-specific key/value parameters passed to the selected pipeline implementation
+
+Pipeline definition documents are located in [docs/pipelines/GTFS.md](pipelines/GTFS.md) and [docs/pipelines/GTFSRT-TRIPUPDATES.md](pipelines/GTFSRT-TRIPUPDATES.md).
 
 Detailed behavioral semantics of `nominal` and `realtime` pipelines are documented in [docs/PROCESSOR.md](PROCESSOR.md).
 
@@ -49,11 +53,13 @@ Minimum validation requirements:
 1. YAML is syntactically valid.
 2. Top-level `instance` key exists and contains at least one object.
 3. Each instance has non-empty `id` and at least one `pipeline`.
-4. Each pipeline has non-empty `id`, `type`, `cron`, and `endpoint`.
+4. Each pipeline has non-empty `id`, `name`, `type`, `cron`, and `endpoint`.
 5. Pipeline `type` is either `nominal` or `realtime`.
-6. If `authentication` is present, it is either:
+6. Pipeline `name` matches a known pipeline definition document.
+7. If `authentication` is present, it is either:
    - `{ token: <value> }`
    - `{ username: <value>, password: <value> }`
+8. If `parameters` is present, it must be a YAML object (mapping). Its keys are pipeline-defined and may vary by pipeline name.
 
 If validation fails, startup must fail and no pipelines are run.
 

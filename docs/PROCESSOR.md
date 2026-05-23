@@ -59,14 +59,28 @@ Loading into PostgreSQL is not performed directly by pipeline implementations.
 
 The central load service owns all load-phase responsibilities:
 
-- persisting normalized records into the database
+- receiving normalized data from pipelines and loading it into the database
+- applying upsert-based persistence as the default write strategy
 - handling matching workflows when realtime records arrive without corresponding nominal records
 - exposing mapping interfaces for external identifiers used by pipelines
 
 The mapping interfaces are used by the calling pipeline to resolve and maintain:
 
 - stop ID mappings
-- trip ID mappings
+- route ID mappings
+
+Matching workflow for realtime-to-nominal trip resolution:
+
+1. Try direct trip ID match first.
+2. If a direct trip ID match exists, accept it and stop matching.
+3. If no direct trip ID match exists, run fallback matching:
+   - map the actual route ID using route ID mappings
+   - map all actual stop IDs using stop ID mappings
+   - find a nominal trip where:
+     - mapped route ID equals nominal route ID
+     - actual trip start time equals nominal trip start time
+     - mapped stop IDs equal nominal stop IDs in the same sequence
+4. If a fallback candidate satisfies all conditions above, treat that nominal trip as the final matched trip.
 
 ### Nominal Pipeline
 
