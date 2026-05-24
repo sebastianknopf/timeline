@@ -18,6 +18,7 @@ instance:
         name: "gtfsrt-tripupdates"
         type: "realtime"
         cron: "* * * * *"
+        # Optional high-frequency schedule: "*/10 * * * * *" (every 10 seconds)
         endpoint: "https://api.example.com/realtime"
         mapping:
           stops: "mapping/stops.csv"

@@ -24,7 +24,7 @@ The processor project uses a `src` layout and is managed as a standalone Python 
 
 ## Runtime Characteristics
 
-The service runs inside Docker and receives its database connection through the `DATABASE_URL` environment variable inside the container, mapped from host-side `PROCESSOR_DATABASE_URL` in Compose.
+The service runs inside Docker and receives its database connection through the `PROCESSOR_DATABASE_URL` environment variable inside the container.
 
 The scheduler configuration is read from a YAML file mounted in the container at `/app/config/config.yaml`.
 
@@ -71,6 +71,7 @@ Its responsibilities are:
 - read mapping file paths from pipeline configuration
 - load each mapping source into in-memory dictionaries of `key -> value`
 - provide normalized mapping lookup APIs to the pipeline runtime
+- provide mapping-to-loading conversion methods so pipelines can pass mapped `TripRecord` and `StopTimeRecord` objects to the loading service
 - apply wildcard mapping keys (for example `*`) according to mapping resolution rules
 
 Mapping ownership decision:
@@ -89,6 +90,7 @@ The central load service owns all load-phase responsibilities:
 - resolving trip identity after mapped identifiers are provided by the central mapping service
 - ensuring atomic database behavior even when asynchronous pipeline runs call the service concurrently
 
+
 Atomicity and asynchronous concurrency requirements:
 
 - execute each load request in an explicit database transaction
@@ -97,6 +99,7 @@ Atomicity and asynchronous concurrency requirements:
 - commit only after all operations succeed, otherwise roll back the entire transaction
 - use deterministic concurrency control during matching and upsert, for example row-level locks (`SELECT ... FOR UPDATE`) or PostgreSQL advisory locks scoped by instance and trip identity
 - treat deadlocks and serialization conflicts as retriable errors with bounded retries
+
 
 Matching workflow for realtime-to-nominal trip resolution:
 
@@ -115,6 +118,23 @@ Matching workflow for realtime-to-nominal trip resolution:
   - validate that actual departure times match nominal departure times within a tolerance window of `-10 minutes` to `+30 minutes`
   - if multiple nominal trips satisfy the fallback criteria, select the best match with the smallest arrival/departure time deviation
   - if all stops satisfy sequence and tolerance conditions, treat that nominal trip as the final matched trip
+
+### Repository Service Layer
+
+Database I/O for the central load service is encapsulated by a dedicated repository service abstraction.
+
+Responsibilities of the repository layer:
+
+- expose explicit interface methods for nominal inserts (`dim_stops`, `dim_trips`, `fact_stop_times`)
+- expose explicit interface methods for realtime upserts on trips and stop times
+- keep SQLAlchemy and SQL details out of the central load service business logic
+
+Central load service dependency rule:
+
+- the central load service depends only on repository interfaces (abstract contracts), not concrete persistence classes
+- concrete repository implementations are injected at composition/startup time
+
+This separation keeps matching logic and orchestration testable without a live database.
 
 ### Nominal Pipeline
 
@@ -144,12 +164,17 @@ Only valid instances and pipelines are activated. Invalid configuration must fai
 
 Scheduling is configured per pipeline through the pipeline `cron` expression.
 
+The scheduler supports both minute-based five-field cron expressions and second-based six-field cron expressions.
+Example second-level schedules include `*/10 * * * * *` (every 10 seconds).
+
 Each scheduled pipeline run is executed asynchronously so that high-frequency realtime jobs do not block other pipelines.
 
 Expected operation pattern:
 
 - nominal pipelines should run once per day
 - realtime pipelines should run at least once per minute
+
+For high-frequency use cases, realtime pipelines can also be scheduled on second granularity.
 
 At a high level:
 

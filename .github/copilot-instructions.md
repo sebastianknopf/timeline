@@ -34,6 +34,12 @@
 - Avoid blocking calls in async code paths. If a blocking library is unavoidable, isolate it behind clear boundaries (for example executor-based wrappers) so the event loop remains responsive.
 - Keep async boundaries explicit in interfaces (`async def`, awaited calls, and cancellation-aware task handling) to support safe concurrent pipeline execution.
 - Enforce strict separation of concerns. Re-usable logic must be encapsulated in dedicated modules so it can be re-used across components.
+- Use only `structlog` for processor logging. Configure default JSON output so logs can be ingested by Promtail/Loki without custom parsing.
+- For feature areas, group files into purpose-specific packages (for example `loading`, `repository`, `mapping`, `pipeline`) instead of mixing concerns in shared modules.
+- Name abstract base class modules with prefix `base_` and ensure abstract base class names end with `Base`.
+- Name interface modules with prefix `intf_` and ensure interface names end with `Interface`.
+- Implementations of abstract base classes and interfaces must use explicit inheritance from their corresponding `Base` or `Interface` types.
 - Create unit tests for every module.
+- Do not add automated unit tests for Alembic migrations. Migration validation must be performed manually.
 - Use only Python's standard `unittest` package for test implementation.
 - For local testing, run tests only with the local project virtual environment.

@@ -61,6 +61,11 @@ Pipeline definition documents are located in [docs/pipelines/GTFS.md](pipelines/
 
 Detailed behavioral semantics of `nominal` and `realtime` pipelines are documented in [docs/PROCESSOR.md](PROCESSOR.md).
 
+Cron expression support:
+
+- five-field format (minute precision), for example `* * * * *`
+- six-field format (second precision), for example `*/10 * * * * *`
+
 Authentication supports exactly one of these shapes:
 
 - token authentication: `token`
@@ -101,6 +106,10 @@ Recommended cadence:
 
 - `nominal`: once per day (for example `0 2 * * *`)
 - `realtime`: at least once per minute (for example `* * * * *`)
+
+Optional high-frequency cadence for realtime pipelines:
+
+- every 10 seconds (for example `*/10 * * * * *`)
 
 ## Mapping Directory
 

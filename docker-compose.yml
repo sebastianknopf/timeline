@@ -27,15 +27,25 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: ${PROCESSOR_DATABASE_URL}
+      PROCESSOR_DATABASE_URL: ${PROCESSOR_DATABASE_URL}
       PROCESSOR_CONFIG_PATH: /app/config/config.yaml
       PROCESSOR_MAPPING_ROOT: /etc/mapping
       PYTHONUNBUFFERED: "1"
     command: ["python", "-m", "processor"]
     volumes:
-      - ./processor:/app
-      - ./config/config.yaml:/app/config/config.yaml:ro
-      - ${PROCESSOR_MAPPING_DIR:-.}:/etc/mapping:ro
+      - type: bind
+        source: ./processor
+        target: /app
+      - type: bind
+        source: ./config/config.yaml
+        target: /app/config/config.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${PROCESSOR_MAPPING_DIR:-.}
+        target: /etc/mapping
+        read_only: true
 
   loki:
     image: grafana/loki:3.1.1

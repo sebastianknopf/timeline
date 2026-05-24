@@ -23,7 +23,7 @@ Without any profile, Compose starts:
 - `db`
 - `processor`
 
-The processor depends on PostgreSQL and reads its database connection from `DATABASE_URL` inside the container, which is sourced from host-side `PROCESSOR_DATABASE_URL` through Docker Compose environment mapping.
+The processor depends on PostgreSQL and reads its database connection from `PROCESSOR_DATABASE_URL` inside the container, sourced from the host-side `.env` variable of the same name through Docker Compose environment mapping.
 
 ### Observability Stack
 

@@ -170,3 +170,22 @@ The following indexes should be created to keep joins and instance-scoped filter
 Indexing principle:
 
 - Keep `instance_id` as the leading index column whenever possible to guarantee tenant-pruned execution paths.
+
+## Model Modules in Processor Code
+
+The processor intentionally uses two different `models.py` modules with different responsibilities.
+
+Database ORM models (`processor/src/processor/database/models.py`):
+
+- SQLAlchemy declarative classes for persisted tables (`dim_stops`, `dim_trips`, `fact_stop_times`)
+- include table metadata, primary keys, foreign keys, indexes, and database column types
+- used by Alembic metadata wiring and concrete repository persistence logic
+
+Loading models (`processor/src/processor/loading/models.py`):
+
+- dataclass records used at service boundaries between pipeline, mapping, and loading layers
+- represent normalized runtime payloads independent from SQLAlchemy session state
+- keep orchestration and matching logic testable without direct ORM dependencies
+
+These two modules are not duplicates.
+They represent different architectural layers (persistence schema vs. runtime transfer models) and are both required.
