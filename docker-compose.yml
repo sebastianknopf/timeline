@@ -29,11 +29,13 @@ services:
     environment:
       DATABASE_URL: ${PROCESSOR_DATABASE_URL}
       PROCESSOR_CONFIG_PATH: /app/config/config.yaml
+      PROCESSOR_MAPPING_ROOT: /etc/mapping
       PYTHONUNBUFFERED: "1"
     command: ["python", "-m", "processor"]
     volumes:
       - ./processor:/app
       - ./config/config.yaml:/app/config/config.yaml:ro
+      - ${PROCESSOR_MAPPING_DIR:-.}:/etc/mapping:ro
 
   loki:
     image: grafana/loki:3.1.1

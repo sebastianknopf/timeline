@@ -1,5 +1,16 @@
 # timeline
 
+Timeline is a transport operations data platform that combines planned schedule data and realtime operational updates into one queryable timeline.
+
+It is used to build a reliable operational view of what was planned, what actually happened, and where deviations occurred.
+
+In general, Timeline works as follows:
+
+1. The processor runs per configured instance with nominal and realtime pipelines.
+2. Pipelines fetch source data, normalize it, and hand it to a central load service.
+3. The load layer performs matching and atomic upsert operations into PostgreSQL.
+4. Dashboards and analytics consume the persisted timeline data for monitoring and reporting.
+
 Base Docker and service setup for the timeline project with:
 
 - processor (Python service, prepared for ETL)

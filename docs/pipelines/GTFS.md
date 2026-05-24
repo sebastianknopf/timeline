@@ -68,7 +68,7 @@ The following assumptions were made while mapping GTFS static data into the Time
 | T3 | `calendar.txt`, `calendar_dates.txt` | Extract all valid `service_id` values for the current calendar date (`operation_day_date`) using `calendar` rules with `calendar_dates` additions/removals, or from the single available file if only one exists. | `valid_service_ids_for_today` |
 | T4 | `agency.txt` | Build agency lookup (`agency_id`, `agency_name`, timezone). | Agency lookup index |
 | T5 | `routes.txt` | Normalize route names and attach agency/concession metadata with fallback for missing `agency_id`. | Route lookup index |
-| T6 | `stops.txt` + referenced `stop_times.stop_id` | Use location_type 0 or empty as primary rule, but if a trip references a stop with another location type, still import that referenced stop to preserve referential completeness. | `dim_stops` candidate rows |
+| T6 | `stops.txt` + referenced `stop_times.stop_id` | Use location_type 0 or empty as primary rule, but if a trip references a stop with another location type, still import that referenced stop to preserve referential completeness. If stop coordinates are missing or invalid, set `stop_lat` and `stop_lon` to `0.0` and keep the row. | `dim_stops` candidate rows |
 | T7 | `trips.txt` | Join trips to routes and keep only trips whose `service_id` is in `valid_service_ids_for_today`. | Current-day trip metadata stream |
 | T8 | `stop_times.txt` | Group by trip_id in stop_sequence order; parse GTFS time strings, including values >24:00:00. | Ordered trip stop-time stream |
 | T9 | Current-day trip metadata + ordered stop_times | Compute nominal trip aggregates: start/end timestamps, start/end stops, `nom_total_distance`, and `schedule_relationship`. Also set `act_total_distance` to null. | `dim_trips` nominal rows |
@@ -83,8 +83,8 @@ The following assumptions were made while mapping GTFS static data into the Time
 | `dim_stops` | `instance_id` | runtime instance | Inject from scheduler pipeline context. |
 | `dim_stops` | `stop_id` | `stops.stop_id` | Direct mapping. |
 | `dim_stops` | `stop_name` | `stops.stop_name` | Direct mapping; trim whitespace. |
-| `dim_stops` | `stop_lat` | `stops.stop_lat` | Parse to `double precision`; reject row if missing/unparseable. |
-| `dim_stops` | `stop_lon` | `stops.stop_lon` | Parse to `double precision`; reject row if missing/unparseable. |
+| `dim_stops` | `stop_lat` | `stops.stop_lat` | Parse to `double precision`; if missing/unparseable set to `0.0`. |
+| `dim_stops` | `stop_lon` | `stops.stop_lon` | Parse to `double precision`; if missing/unparseable set to `0.0`. |
 | `dim_trips` | `instance_id` | runtime instance | Inject from scheduler pipeline context. |
 | `dim_trips` | `operation_day_date` | pipeline runtime date | Set to the current calendar date of the pipeline run (future-compatible with configurable day offset). |
 | `dim_trips` | `trip_id` | `trips.trip_id` | Direct mapping. |

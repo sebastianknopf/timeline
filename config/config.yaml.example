@@ -6,6 +6,9 @@ instance:
         type: "nominal"
         cron: "0 2 * * *"
         endpoint: "https://api.example.com/schedule"
+        mapping:
+          stops: "mapping/stops.csv"
+          routes: "mapping/routes.csv"
         parameters:
           fallback_agency_id: "UNKNOWN-AGENCY"
           fallback_agency_name: "Unknown Agency"
@@ -16,6 +19,9 @@ instance:
         type: "realtime"
         cron: "* * * * *"
         endpoint: "https://api.example.com/realtime"
+        mapping:
+          stops: "mapping/stops.csv"
+          routes: "mapping/routes.csv"
         authentication:
           username: "${REALTIME_API_USER}"
           password: "${REALTIME_API_PASSWORD}"

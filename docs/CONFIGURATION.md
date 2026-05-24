@@ -32,6 +32,30 @@ Each pipeline object defines:
 - `endpoint`: source endpoint URL or address
 - `authentication` (optional): authentication object when required by the endpoint
 - `parameters` (optional): object containing arbitrary pipeline-specific key/value parameters passed to the selected pipeline implementation
+- `mapping` (optional): mapping file configuration for identifier translation inputs
+
+`mapping` can contain these optional keys:
+
+- `stops`: path to a stops mapping file
+- `routes`: path to a routes mapping file
+
+Mapping files must provide at least these columns:
+
+- `key`
+- `value`
+
+Additional descriptive columns are allowed, but they are ignored by the service.
+
+Mapping files may include a header row. If a header row is present, it is not treated as mapping data.
+
+Wildcard behavior:
+
+- An asterisk (`*`) in a mapping `key` is treated as a wildcard pattern during mapping resolution.
+
+Path resolution for `mapping.stops` and `mapping.routes`:
+
+- relative paths are resolved against the processor mapping root in the container (`/etc/mapping`)
+- absolute paths must be under `/etc/mapping`
 
 Pipeline definition documents are located in [docs/pipelines/GTFS.md](pipelines/GTFS.md) and [docs/pipelines/GTFSRT-TRIPUPDATES.md](pipelines/GTFSRT-TRIPUPDATES.md).
 
@@ -60,6 +84,9 @@ Minimum validation requirements:
    - `{ token: <value> }`
    - `{ username: <value>, password: <value> }`
 8. If `parameters` is present, it must be a YAML object (mapping). Its keys are pipeline-defined and may vary by pipeline name.
+9. If `mapping` is present, it must be a YAML object (mapping) containing only `stops` and/or `routes`.
+10. If mapping files are provided, they must be readable CSV files containing at least `key` and `value` columns.
+11. If a mapping key contains `*`, it must be interpreted as a wildcard pattern by the mapping resolver.
 
 If validation fails, startup must fail and no pipelines are run.
 
@@ -74,3 +101,12 @@ Recommended cadence:
 
 - `nominal`: once per day (for example `0 2 * * *`)
 - `realtime`: at least once per minute (for example `* * * * *`)
+
+## Mapping Directory
+
+The processor mounts a mapping root directory to `/etc/mapping` in the container.
+
+- Host mapping root is configured by environment variable `PROCESSOR_MAPPING_DIR`
+- Default value is the current project directory (`.`)
+
+This allows mapping paths in `config.yaml` to be portable across local and container execution.
