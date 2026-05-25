@@ -158,14 +158,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             concessionaire_name="Concessionaire 1",
             operator_id="op-1",
             operator_name="Operator 1",
-            nom_start_time=first_nom_departure,
-            nom_end_time=last_nom_arrival,
-            act_start_time=first_act_departure,
-            act_end_time=last_act_arrival,
-            nom_start_stop_id="A",
-            nom_end_stop_id="B",
-            nom_total_distance=15.5,
-            act_total_distance=16.1,
         )
         stop_times = [
             StopTimeRecord(
@@ -229,14 +221,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             concessionaire_name="Concessionaire 1",
             operator_id="op-1",
             operator_name="Operator 1",
-            nom_start_time=first_nom_departure,
-            nom_end_time=last_nom_arrival,
-            act_start_time=None,
-            act_end_time=None,
-            nom_start_stop_id="A",
-            nom_end_stop_id="B",
-            nom_total_distance=10.0,
-            act_total_distance=None,
         )
         stop_times = [
             StopTimeRecord(
@@ -295,14 +279,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             concessionaire_name="Concessionaire 1",
             operator_id=None,
             operator_name=None,
-            nom_start_time=first_nom_departure,
-            nom_end_time=last_nom_departure,
-            act_start_time=None,
-            act_end_time=None,
-            nom_start_stop_id="A",
-            nom_end_stop_id="B",
-            nom_total_distance=12.0,
-            act_total_distance=None,
         )
 
         baseline = [
@@ -386,14 +362,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             concessionaire_name="Concessionaire 1",
             operator_id=None,
             operator_name=None,
-            nom_start_time=first_nom_departure,
-            nom_end_time=last_nom_departure,
-            act_start_time=None,
-            act_end_time=None,
-            nom_start_stop_id="A",
-            nom_end_stop_id="B",
-            nom_total_distance=8.0,
-            act_total_distance=None,
         )
 
         baseline = [

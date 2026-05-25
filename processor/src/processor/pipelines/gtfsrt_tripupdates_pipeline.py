@@ -113,7 +113,6 @@ class GtfsRtTripUpdatesPipeline:
                 trip_id=trip_id,
                 route_id=route_id,
                 schedule_relationship=trip_schedule_relationship,
-                stop_times=stop_time_records,
             )
 
             mapped_trip, mapped_stop_times = await self._mapping_service.map_records_for_loading(
@@ -237,18 +236,11 @@ class GtfsRtTripUpdatesPipeline:
         trip_id: str,
         route_id: str,
         schedule_relationship: str,
-        stop_times: list[StopTimeRecord],
     ) -> TripRecord:
-        first_stop = stop_times[0]
-        last_stop = stop_times[-1]
-
-        nom_start_time = first_stop.nom_departure_time
-        nom_end_time = last_stop.nom_arrival_time
-
-        # Realtime boundaries follow stop order, not min/max over all rows.
-        act_start_time = first_stop.act_departure_time or first_stop.act_arrival_time or nom_start_time
-        act_end_time = last_stop.act_arrival_time or last_stop.act_departure_time or nom_end_time
-
+        # Only identity fields are set here.  All derived trip boundary fields
+        # (nom/act start/end times, stop IDs, distances) require nominal schedule
+        # data from the database and are resolved exclusively by the loading service
+        # in _derive_realtime_trip_fields after nominal matching.
         return TripRecord(
             operation_day_date=operation_day,
             trip_id=trip_id,
@@ -258,14 +250,6 @@ class GtfsRtTripUpdatesPipeline:
             concessionaire_name="Unknown Concessionaire",
             operator_id=None,
             operator_name=None,
-            nom_start_time=nom_start_time,
-            nom_end_time=nom_end_time,
-            act_start_time=act_start_time,
-            act_end_time=act_end_time,
-            nom_start_stop_id=first_stop.stop_id,
-            nom_end_stop_id=last_stop.stop_id,
-            nom_total_distance=max(item.distance_from_start for item in stop_times),
-            act_total_distance=max(item.distance_from_start for item in stop_times),
             schedule_relationship=schedule_relationship,
         )
 

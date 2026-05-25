@@ -129,6 +129,43 @@ Matching workflow for realtime-to-nominal trip resolution:
   - if multiple nominal trips satisfy the fallback criteria, select the best match with the smallest arrival/departure time deviation
   - if all stops satisfy sequence and tolerance conditions, treat that nominal trip as the final matched trip
 
+#### Realtime data post-processing
+
+After receiving raw realtime records from a pipeline and fetching the corresponding nominal stop times from the database, the loading service executes the following post-processing steps in order before writing to the database.
+Pipelines must not perform any of these steps themselves; they only supply identity fields and the raw event data.
+
+**Step 1 — Nominal baseline merge and delay propagation** (`_apply_nominal_baseline`)
+
+Iterates the full nominal stop sequence in ascending `stop_sequence` order.
+
+- For each nominal stop with an explicit realtime update: replace the placeholder nominal times with the real scheduled times from the database, and track the effective delay (arrival and departure tracked independently).
+  - If an absolute timestamp was supplied, the effective delay is `round((act_time − nom_time).total_seconds())`.
+  - If only `delay_seconds` was supplied, that value is used as the effective delay.
+- For each nominal stop without an explicit realtime update, if at least one preceding explicit update exists: synthesize a `StopTimeRecord` carrying the tracked `arrival_delay_seconds` / `departure_delay_seconds` with `schedule_relationship = "SCHEDULED"` and `act_arrival_time` / `act_departure_time` left `None` (resolved downstream). Explicit update data is always authoritative and is never overwritten by a propagated value.
+- Stops that precede the first explicit update in the nominal sequence receive no propagated record.
+- For nominally unknown trips (no nominal stop times in the database): the realtime records are passed through as-is; no baseline merge or propagation is performed.
+
+**Step 2 — Realtime timestamp normalization** (`_normalize_realtime_stop_times`)
+
+For every stop-time record:
+
+- If an absolute `act_arrival_time` or `act_departure_time` was provided, it is used directly.
+- If only `arrival_delay_seconds` / `departure_delay_seconds` is present, the actual time is resolved as `nom_*_time + timedelta(seconds=delay_seconds)`.
+- If only one side (arrival or departure) is present after resolution, it is mirrored to the missing side so both `act_arrival_time` and `act_departure_time` are always in sync for the same stop.
+
+**Step 3 — Trip boundary derivation** (`_derive_realtime_trip_fields`)
+
+Derives all trip-level boundary fields from the ordered stop-time data.
+
+- `nom_start_time` / `nom_end_time`: taken from `nom_departure_time` of the first / last nominal stop (falling back to the first / last normalized realtime stop for nominally unknown trips).
+- `nom_start_stop_id` / `nom_end_stop_id`: `stop_id` of the first / last nominal stop.
+- `nom_total_distance`: maximum `distance_from_start` across all nominal stops.
+- `act_start_time`: `act_departure_time` of the first realtime stop (falls back to `nom_start_time` when absent).
+- `act_end_time`: `act_departure_time` of the last realtime stop, but only written when that timestamp is `<= now`; otherwise kept `NULL` until the trip end is in the past.
+- `act_total_distance`: maximum `distance_from_start` across all normalized realtime stops.
+
+Realtime information supplied explicitly by the pipeline always takes precedence over any synthesized or propagated value.
+
 ### Repository Service Layer
 
 Database I/O for the central load service is encapsulated by a dedicated repository service abstraction.

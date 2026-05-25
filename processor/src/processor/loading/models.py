@@ -22,14 +22,17 @@ class TripRecord:
     concessionaire_name: str
     operator_id: str | None
     operator_name: str | None
-    nom_start_time: datetime
-    nom_end_time: datetime
-    act_start_time: datetime | None
-    act_end_time: datetime | None
-    nom_start_stop_id: str
-    nom_end_stop_id: str
-    nom_total_distance: float
-    act_total_distance: float | None
+    # The following fields are derived from nominal schedule data and resolved by the
+    # central load service.  Pipelines that do not have access to nominal DB data must
+    # leave these as None; the load service fills them in before persistence.
+    nom_start_time: datetime | None = None
+    nom_end_time: datetime | None = None
+    act_start_time: datetime | None = None
+    act_end_time: datetime | None = None
+    nom_start_stop_id: str | None = None
+    nom_end_stop_id: str | None = None
+    nom_total_distance: float | None = None
+    act_total_distance: float | None = None
     schedule_relationship: str = "UNKNOWN"
 
 
