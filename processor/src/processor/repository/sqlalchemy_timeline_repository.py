@@ -182,19 +182,8 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                 upsert_stmt = insert_stmt.on_conflict_do_update(
                     index_elements=["instance_id", "operation_day_date", "trip_id"],
                     set_={
-                        "route_id": insert_stmt.excluded.route_id,
-                        "route_name": insert_stmt.excluded.route_name,
-                        "concessionaire_id": insert_stmt.excluded.concessionaire_id,
-                        "concessionaire_name": insert_stmt.excluded.concessionaire_name,
-                        "operator_id": insert_stmt.excluded.operator_id,
-                        "operator_name": insert_stmt.excluded.operator_name,
-                        "nom_start_time": insert_stmt.excluded.nom_start_time,
-                        "nom_end_time": insert_stmt.excluded.nom_end_time,
                         "act_start_time": insert_stmt.excluded.act_start_time,
                         "act_end_time": insert_stmt.excluded.act_end_time,
-                        "nom_start_stop_id": insert_stmt.excluded.nom_start_stop_id,
-                        "nom_end_stop_id": insert_stmt.excluded.nom_end_stop_id,
-                        "nom_total_distance": insert_stmt.excluded.nom_total_distance,
                         "act_total_distance": insert_stmt.excluded.act_total_distance,
                         "schedule_relationship": insert_stmt.excluded.schedule_relationship,
                     },
@@ -231,8 +220,6 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                             "distance_from_start",
                         ],
                         set_={
-                            "nom_arrival_time": insert_stmt.excluded.nom_arrival_time,
-                            "nom_departure_time": insert_stmt.excluded.nom_departure_time,
                             "act_arrival_time": insert_stmt.excluded.act_arrival_time,
                             "act_departure_time": insert_stmt.excluded.act_departure_time,
                             "schedule_relationship": insert_stmt.excluded.schedule_relationship,

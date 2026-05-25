@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from .config_verifier import ConfigurationError, ConfigurationVerifier
 from .loading.loading_service import LoadingService
 from .mapping.mapping_service import MappingService
-from .pipelines import GtfsNominalPipeline, TimelinePipelineExecutor
+from .pipelines import GtfsNominalPipeline, GtfsRtTripUpdatesPipeline, TimelinePipelineExecutor
 from .repository import SqlAlchemyTimelineRepository
 from .scheduler import PipelineScheduler
 
@@ -112,12 +112,18 @@ async def _run() -> None:
         mapping_service=mapping_service,
         processor_timezone_name=processor_timezone_name,
     )
+    gtfs_realtime_pipeline = GtfsRtTripUpdatesPipeline(
+        loading_service=loading_service,
+        mapping_service=mapping_service,
+        processor_timezone_name=processor_timezone_name,
+    )
 
     scheduler = PipelineScheduler(
         config=parsed_config,
         executor=TimelinePipelineExecutor(
             mapping_service=mapping_service,
             gtfs_nominal_pipeline=gtfs_nominal_pipeline,
+            gtfs_realtime_pipeline=gtfs_realtime_pipeline,
         ),
     )
 

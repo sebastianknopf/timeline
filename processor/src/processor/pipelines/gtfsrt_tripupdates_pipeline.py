@@ -1,0 +1,358 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
+from typing import Iterable
+from urllib.request import Request, urlopen
+import base64
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from google.transit import gtfs_realtime_pb2
+import structlog
+
+from ..loading.loading_service import LoadingService
+from ..loading.models import StopTimeRecord, TripRecord
+from ..mapping.intf_mapping_service import MappingServiceInterface
+from ..runtime_config import AuthenticationConfig, InstanceConfig, PipelineConfig
+
+LOGGER = structlog.get_logger(__name__)
+
+
+class GtfsRealtimePipelineError(RuntimeError):
+    """Raised when GTFS realtime processing cannot produce a valid payload."""
+
+
+@dataclass(frozen=True, slots=True)
+class _StopUpdate:
+    stop_id: str
+    distance_from_start: float
+    actual_arrival_time: datetime | None
+    actual_departure_time: datetime | None
+    arrival_delay_seconds: int | None
+    departure_delay_seconds: int | None
+    schedule_relationship: str
+
+
+class GtfsRtTripUpdatesPipeline:
+    def __init__(
+        self,
+        loading_service: LoadingService,
+        mapping_service: MappingServiceInterface,
+        processor_timezone_name: str = "UTC",
+    ) -> None:
+        self._loading_service = loading_service
+        self._mapping_service = mapping_service
+        self._processor_timezone_name = processor_timezone_name
+        self._processor_timezone = _safe_zoneinfo(processor_timezone_name)
+
+    async def execute(self, instance: InstanceConfig, pipeline: PipelineConfig) -> None:
+        if pipeline.name != "gtfsrt-tripupdates":
+            raise GtfsRealtimePipelineError(
+                f"GtfsRtTripUpdatesPipeline cannot execute pipeline '{pipeline.id}' with name '{pipeline.name}'."
+            )
+
+        payload = self._read_endpoint_payload(endpoint=pipeline.endpoint, authentication=pipeline.authentication)
+        feed_message = self._decode_feed_message(payload)
+
+        now_utc = datetime.now(UTC)
+        now_processor_tz = now_utc.astimezone(self._processor_timezone)
+        feed_timestamp_utc = _timestamp_to_utc(feed_message.header.timestamp) if feed_message.header.timestamp else None
+
+        entity_count = 0
+        trip_update_count = 0
+        skipped_entities = 0
+        loaded_trip_count = 0
+        loaded_stop_time_count = 0
+
+        for entity in feed_message.entity:
+            entity_count += 1
+            if not entity.HasField("trip_update"):
+                skipped_entities += 1
+                continue
+
+            trip_update = entity.trip_update
+            trip_descriptor = trip_update.trip
+            trip_id = (trip_descriptor.trip_id or "").strip()
+            if not trip_id:
+                skipped_entities += 1
+                continue
+
+            trip_update_count += 1
+
+            operation_day = _parse_service_date(
+                raw_value=(trip_descriptor.start_date or "").strip(),
+                fallback_date=now_processor_tz.date(),
+            )
+
+            route_id = (trip_descriptor.route_id or "").strip() or "UNKNOWN-ROUTE"
+            trip_schedule_relationship = _enum_name(
+                enum_descriptor=gtfs_realtime_pb2.TripDescriptor.ScheduleRelationship,
+                value=trip_descriptor.schedule_relationship,
+                fallback="UNKNOWN",
+            )
+
+            stop_updates = self._extract_stop_updates(
+                updates=trip_update.stop_time_update,
+                default_schedule_relationship=trip_schedule_relationship,
+                now_utc=now_utc,
+                trip_timestamp_utc=_timestamp_to_utc(trip_update.timestamp) if trip_update.timestamp else None,
+                feed_timestamp_utc=feed_timestamp_utc,
+            )
+            if not stop_updates:
+                continue
+
+            stop_time_records = self._build_stop_time_records(
+                operation_day=operation_day,
+                trip_id=trip_id,
+                stop_updates=stop_updates,
+            )
+            trip_record = self._build_trip_record(
+                operation_day=operation_day,
+                trip_id=trip_id,
+                route_id=route_id,
+                schedule_relationship=trip_schedule_relationship,
+                stop_times=stop_time_records,
+            )
+
+            mapped_trip, mapped_stop_times = await self._mapping_service.map_records_for_loading(
+                instance_id=instance.id,
+                pipeline_id=pipeline.id,
+                trip=trip_record,
+                stop_times=stop_time_records,
+            )
+
+            await self._loading_service.load_realtime_trip_and_stop_times(
+                instance_id=instance.id,
+                trip=mapped_trip,
+                stop_times=mapped_stop_times,
+            )
+            loaded_trip_count += 1
+            loaded_stop_time_count += len(mapped_stop_times)
+
+        LOGGER.info(
+            "gtfs_realtime_tripupdates_pipeline_loaded",
+            instance_id=instance.id,
+            pipeline_id=pipeline.id,
+            processor_timezone=self._processor_timezone_name,
+            entity_count=entity_count,
+            trip_update_count=trip_update_count,
+            skipped_entity_count=skipped_entities,
+            loaded_trip_count=loaded_trip_count,
+            loaded_stop_time_count=loaded_stop_time_count,
+        )
+
+    def _read_endpoint_payload(self, endpoint: str, authentication: AuthenticationConfig | None) -> bytes:
+        request = Request(endpoint)
+        for key, value in _build_auth_headers(authentication).items():
+            request.add_header(key, value)
+
+        with urlopen(request, timeout=30) as response:
+            return response.read()
+
+    def _decode_feed_message(self, payload: bytes) -> gtfs_realtime_pb2.FeedMessage:
+        feed_message = gtfs_realtime_pb2.FeedMessage()
+        try:
+            feed_message.ParseFromString(payload)
+        except Exception as exc:
+            raise GtfsRealtimePipelineError("Failed to decode GTFS realtime protobuf payload.") from exc
+        return feed_message
+
+    def _extract_stop_updates(
+        self,
+        updates: Iterable[gtfs_realtime_pb2.TripUpdate.StopTimeUpdate],
+        default_schedule_relationship: str,
+        now_utc: datetime,
+        trip_timestamp_utc: datetime | None,
+        feed_timestamp_utc: datetime | None,
+    ) -> list[_StopUpdate]:
+        results: list[_StopUpdate] = []
+
+        for index, update in enumerate(updates):
+            stop_id = (update.stop_id or "").strip()
+            if not stop_id:
+                continue
+
+            arrival_time = (
+                _resolve_event_time(
+                    event=update.arrival,
+                    now_utc=now_utc,
+                    trip_timestamp_utc=trip_timestamp_utc,
+                    feed_timestamp_utc=feed_timestamp_utc,
+                    processor_timezone=self._processor_timezone,
+                )
+                if update.HasField("arrival")
+                else None
+            )
+            departure_time = (
+                _resolve_event_time(
+                    event=update.departure,
+                    now_utc=now_utc,
+                    trip_timestamp_utc=trip_timestamp_utc,
+                    feed_timestamp_utc=feed_timestamp_utc,
+                    processor_timezone=self._processor_timezone,
+                )
+                if update.HasField("departure")
+                else None
+            )
+            if arrival_time is None and departure_time is None:
+                continue
+
+            schedule_relationship = (
+                _enum_name(
+                    enum_descriptor=gtfs_realtime_pb2.TripUpdate.StopTimeUpdate.ScheduleRelationship,
+                    value=update.schedule_relationship,
+                    fallback=default_schedule_relationship,
+                )
+                if update.HasField("schedule_relationship")
+                else default_schedule_relationship
+            )
+
+            distance_from_start = float(index)
+            if update.HasField("stop_sequence"):
+                distance_from_start = float(update.stop_sequence)
+
+            results.append(
+                _StopUpdate(
+                    stop_id=stop_id,
+                    distance_from_start=distance_from_start,
+                    actual_arrival_time=arrival_time,
+                    actual_departure_time=departure_time,
+                    arrival_delay_seconds=update.arrival.delay if update.HasField("arrival") and update.arrival.HasField("delay") else None,
+                    departure_delay_seconds=update.departure.delay if update.HasField("departure") and update.departure.HasField("delay") else None,
+                    schedule_relationship=schedule_relationship,
+                )
+            )
+
+        return results
+
+    def _build_trip_record(
+        self,
+        operation_day: date,
+        trip_id: str,
+        route_id: str,
+        schedule_relationship: str,
+        stop_times: list[StopTimeRecord],
+    ) -> TripRecord:
+        first_stop = stop_times[0]
+        last_stop = stop_times[-1]
+
+        nom_start_time = first_stop.nom_departure_time
+        nom_end_time = last_stop.nom_arrival_time
+
+        # Realtime boundaries follow stop order, not min/max over all rows.
+        act_start_time = first_stop.act_departure_time or first_stop.act_arrival_time or nom_start_time
+        act_end_time = last_stop.act_arrival_time or last_stop.act_departure_time or nom_end_time
+
+        return TripRecord(
+            operation_day_date=operation_day,
+            trip_id=trip_id,
+            route_id=route_id,
+            route_name=route_id,
+            concessionaire_id="UNKNOWN-CONCESSIONAIRE",
+            concessionaire_name="Unknown Concessionaire",
+            operator_id=None,
+            operator_name=None,
+            nom_start_time=nom_start_time,
+            nom_end_time=nom_end_time,
+            act_start_time=act_start_time,
+            act_end_time=act_end_time,
+            nom_start_stop_id=first_stop.stop_id,
+            nom_end_stop_id=last_stop.stop_id,
+            nom_total_distance=max(item.distance_from_start for item in stop_times),
+            act_total_distance=max(item.distance_from_start for item in stop_times),
+            schedule_relationship=schedule_relationship,
+        )
+
+    def _build_stop_time_records(
+        self,
+        operation_day: date,
+        trip_id: str,
+        stop_updates: list[_StopUpdate],
+    ) -> list[StopTimeRecord]:
+        records: list[StopTimeRecord] = []
+        for update in stop_updates:
+            nom_arrival_time = update.actual_arrival_time or update.actual_departure_time
+            nom_departure_time = update.actual_departure_time or update.actual_arrival_time
+            if nom_arrival_time is None or nom_departure_time is None:
+                continue
+
+            records.append(
+                StopTimeRecord(
+                    operation_day_date=operation_day,
+                    trip_id=trip_id,
+                    stop_id=update.stop_id,
+                    distance_from_start=update.distance_from_start,
+                    nom_arrival_time=nom_arrival_time,
+                    nom_departure_time=nom_departure_time,
+                    act_arrival_time=update.actual_arrival_time,
+                    act_departure_time=update.actual_departure_time,
+                    schedule_relationship=update.schedule_relationship,
+                    arrival_delay_seconds=update.arrival_delay_seconds,
+                    departure_delay_seconds=update.departure_delay_seconds,
+                )
+            )
+
+        return records
+
+
+def _build_auth_headers(authentication: AuthenticationConfig | None) -> dict[str, str]:
+    if authentication is None:
+        return {}
+
+    if authentication.token:
+        return {"Authorization": f"Bearer {authentication.token}"}
+
+    if authentication.username and authentication.password:
+        raw = f"{authentication.username}:{authentication.password}".encode("utf-8")
+        encoded = base64.b64encode(raw).decode("ascii")
+        return {"Authorization": f"Basic {encoded}"}
+
+    return {}
+
+
+def _safe_zoneinfo(timezone_name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        LOGGER.warning("gtfsrt_invalid_timezone_fallback", timezone=timezone_name)
+        return ZoneInfo("UTC")
+
+
+def _timestamp_to_utc(unix_seconds: int) -> datetime:
+    return datetime.fromtimestamp(unix_seconds, tz=UTC)
+
+
+def _resolve_event_time(
+    event: gtfs_realtime_pb2.TripUpdate.StopTimeEvent,
+    now_utc: datetime,
+    trip_timestamp_utc: datetime | None,
+    feed_timestamp_utc: datetime | None,
+    processor_timezone: ZoneInfo,
+) -> datetime | None:
+    # Absolute event timestamp is authoritative; delay is resolved in the load service against nominal time.
+    if event.HasField("time"):
+        return _timestamp_to_utc(event.time).astimezone(processor_timezone)
+
+    return None
+
+
+def _parse_service_date(raw_value: str, fallback_date: date) -> date:
+    if not raw_value:
+        return fallback_date
+
+    try:
+        return datetime.strptime(raw_value, "%Y%m%d").date()
+    except ValueError:
+        return fallback_date
+
+
+def _enum_name(enum_descriptor: object, value: int, fallback: str) -> str:
+    if not hasattr(enum_descriptor, "Name"):
+        return fallback
+    try:
+        name = enum_descriptor.Name(value)
+    except ValueError:
+        return fallback
+    if not name:
+        return fallback
+    return str(name)

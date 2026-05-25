@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 import unittest
 
 try:
@@ -16,6 +16,8 @@ from processor.repository.intf_timeline_repository import TimelineRepositoryInte
 class RecordingRepository(TimelineRepositoryInterface):
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, int]] = []
+        self.realtime_trips: list[TripRecord] = []
+        self.realtime_stop_times: list[StopTimeRecord] = []
 
     async def upsert_nominal_stops(self, instance_id: str, stops: list[StopRecord]) -> None:
         self.calls.append(("upsert_nominal_stops", instance_id, len(stops)))
@@ -44,6 +46,7 @@ class RecordingRepository(TimelineRepositoryInterface):
 
     async def upsert_realtime_trip(self, instance_id: str, trip: TripRecord) -> None:
         self.calls.append(("upsert_realtime_trip", instance_id, 1))
+        self.realtime_trips.append(trip)
 
     async def upsert_realtime_stop_times(
         self,
@@ -51,6 +54,7 @@ class RecordingRepository(TimelineRepositoryInterface):
         stop_times: list[StopTimeRecord],
     ) -> None:
         self.calls.append(("upsert_realtime_stop_times", instance_id, len(stop_times)))
+        self.realtime_stop_times.extend(stop_times)
 
 
 class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -120,8 +124,18 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
         repository = RecordingRepository()
         service = LoadingService(repository=repository)
 
+        now = datetime.now(UTC)
+        first_nom_arrival = now + timedelta(minutes=10)
+        first_nom_departure = now + timedelta(minutes=11)
+        last_nom_arrival = now + timedelta(minutes=45)
+        last_nom_departure = now + timedelta(minutes=47)
+        first_act_arrival = first_nom_arrival + timedelta(minutes=2)
+        first_act_departure = first_nom_departure + timedelta(minutes=2)
+        last_act_arrival = last_nom_arrival + timedelta(minutes=5)
+        last_act_departure = last_nom_departure + timedelta(minutes=5)
+
         trip = TripRecord(
-            operation_day_date=date(2026, 5, 24),
+            operation_day_date=now.date(),
             trip_id="trip-1",
             route_id="route-1",
             route_name="Route 1",
@@ -129,10 +143,10 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             concessionaire_name="Concessionaire 1",
             operator_id="op-1",
             operator_name="Operator 1",
-            nom_start_time=datetime(2026, 5, 24, 8, 0, tzinfo=UTC),
-            nom_end_time=datetime(2026, 5, 24, 9, 0, tzinfo=UTC),
-            act_start_time=datetime(2026, 5, 24, 8, 2, tzinfo=UTC),
-            act_end_time=datetime(2026, 5, 24, 9, 3, tzinfo=UTC),
+            nom_start_time=first_nom_departure,
+            nom_end_time=last_nom_arrival,
+            act_start_time=first_act_departure,
+            act_end_time=last_act_arrival,
             nom_start_stop_id="A",
             nom_end_stop_id="B",
             nom_total_distance=15.5,
@@ -140,24 +154,24 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
         )
         stop_times = [
             StopTimeRecord(
-                operation_day_date=date(2026, 5, 24),
+                operation_day_date=now.date(),
                 trip_id="trip-1",
                 stop_id="A",
                 distance_from_start=0.0,
-                nom_arrival_time=datetime(2026, 5, 24, 8, 0, tzinfo=UTC),
-                nom_departure_time=datetime(2026, 5, 24, 8, 1, tzinfo=UTC),
-                act_arrival_time=datetime(2026, 5, 24, 8, 2, tzinfo=UTC),
-                act_departure_time=datetime(2026, 5, 24, 8, 3, tzinfo=UTC),
+                nom_arrival_time=first_nom_arrival,
+                nom_departure_time=first_nom_departure,
+                act_arrival_time=first_act_arrival,
+                act_departure_time=first_act_departure,
             ),
             StopTimeRecord(
-                operation_day_date=date(2026, 5, 24),
+                operation_day_date=now.date(),
                 trip_id="trip-1",
                 stop_id="B",
                 distance_from_start=10.0,
-                nom_arrival_time=datetime(2026, 5, 24, 8, 40, tzinfo=UTC),
-                nom_departure_time=datetime(2026, 5, 24, 8, 42, tzinfo=UTC),
-                act_arrival_time=datetime(2026, 5, 24, 8, 45, tzinfo=UTC),
-                act_departure_time=datetime(2026, 5, 24, 8, 47, tzinfo=UTC),
+                nom_arrival_time=last_nom_arrival,
+                nom_departure_time=last_nom_departure,
+                act_arrival_time=last_act_arrival,
+                act_departure_time=last_act_departure,
             ),
         ]
 
@@ -174,6 +188,72 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             ],
             repository.calls,
         )
+        self.assertEqual(1, len(repository.realtime_trips))
+        self.assertEqual(first_act_departure, repository.realtime_trips[0].act_start_time)
+        self.assertIsNone(repository.realtime_trips[0].act_end_time)
+
+    async def test_realtime_delay_fallback_and_trip_end_population(self) -> None:
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        now = datetime.now(UTC)
+        first_nom_arrival = now + timedelta(minutes=1)
+        first_nom_departure = now + timedelta(minutes=2)
+        last_nom_arrival = now - timedelta(minutes=2)
+        last_nom_departure = now + timedelta(minutes=5)
+
+        trip = TripRecord(
+            operation_day_date=now.date(),
+            trip_id="trip-2",
+            route_id="route-1",
+            route_name="Route 1",
+            concessionaire_id="conc-1",
+            concessionaire_name="Concessionaire 1",
+            operator_id="op-1",
+            operator_name="Operator 1",
+            nom_start_time=first_nom_departure,
+            nom_end_time=last_nom_arrival,
+            act_start_time=None,
+            act_end_time=None,
+            nom_start_stop_id="A",
+            nom_end_stop_id="B",
+            nom_total_distance=10.0,
+            act_total_distance=None,
+        )
+        stop_times = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-2",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=first_nom_arrival,
+                nom_departure_time=first_nom_departure,
+                act_arrival_time=None,
+                act_departure_time=None,
+                departure_delay_seconds=0,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-2",
+                stop_id="B",
+                distance_from_start=10.0,
+                nom_arrival_time=last_nom_arrival,
+                nom_departure_time=last_nom_departure,
+                act_arrival_time=None,
+                act_departure_time=None,
+                arrival_delay_seconds=0,
+            ),
+        ]
+
+        await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=stop_times,
+        )
+
+        self.assertEqual(1, len(repository.realtime_trips))
+        self.assertEqual(first_nom_departure, repository.realtime_trips[0].act_start_time)
+        self.assertEqual(last_nom_arrival, repository.realtime_trips[0].act_end_time)
 
 
 if __name__ == "__main__":
