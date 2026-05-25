@@ -5,7 +5,12 @@ import tempfile
 from pathlib import Path
 import unittest
 
-from processor.loading.models import StopTimeRecord, TripRecord
+try:
+    from . import _test_bootstrap
+except ImportError:
+    import _test_bootstrap
+
+from processor.loading.models import StopRecord, StopTimeRecord, TripRecord
 from processor.mapping.mapping_service import MappingService
 from processor.runtime_config import MappingConfig, PipelineConfig
 
@@ -37,6 +42,36 @@ class MappingServiceTests(unittest.IsolatedAsyncioTestCase):
                 "ROUTE-WILDCARD",
                 await service.map_route_id("demo", "realtime", "R-UNKNOWN"),
             )
+
+    async def test_map_stop_records_returns_mapped_stop_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            stops_csv = tmp_dir / "stops.csv"
+            stops_csv.write_text("key,value\nS1,STOP-A\n", encoding="utf-8")
+
+            pipeline = PipelineConfig(
+                id="nominal",
+                name="gtfs",
+                type="nominal",
+                cron="0 2 * * *",
+                endpoint="https://example.test/nominal",
+                mapping=MappingConfig(stops=stops_csv),
+            )
+
+            service = MappingService()
+            service.register_pipeline_mapping(instance_id="demo", pipeline=pipeline)
+
+            mapped_stops = await service.map_stop_records(
+                instance_id="demo",
+                pipeline_id="nominal",
+                stops=[
+                    StopRecord(stop_id="S1", stop_name="A", stop_lat=1.0, stop_lon=2.0),
+                    StopRecord(stop_id="S9", stop_name="B", stop_lat=3.0, stop_lon=4.0),
+                ],
+            )
+
+            self.assertEqual("STOP-A", mapped_stops[0].stop_id)
+            self.assertEqual("S9", mapped_stops[1].stop_id)
 
     async def test_map_records_for_loading_returns_mapped_loading_models(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir_str:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from ..loading.models import StopTimeRecord, TripRecord
+from ..loading.models import StopRecord, StopTimeRecord, TripRecord
 from ..runtime_config import PipelineConfig
 
 
@@ -15,6 +15,14 @@ class MappingServiceInterface(Protocol):
 
     async def map_stop_id(self, instance_id: str, pipeline_id: str, stop_id: str) -> str:
         """Map one stop ID for a pipeline context."""
+
+    async def map_stop_records(
+        self,
+        instance_id: str,
+        pipeline_id: str,
+        stops: list[StopRecord],
+    ) -> list[StopRecord]:
+        """Return mapped stop records that can be passed to LoadingService."""
 
     async def map_records_for_loading(
         self,

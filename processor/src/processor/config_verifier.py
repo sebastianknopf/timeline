@@ -118,6 +118,8 @@ class ConfigurationVerifier:
             f"pipeline.endpoint ({pipeline_id})",
         )
 
+        policy = self._parse_policy(raw_pipeline.get("policy"), pipeline_id)
+
         parameters = raw_pipeline.get("parameters", {})
         if not isinstance(parameters, dict):
             raise ConfigurationError(
@@ -137,10 +139,28 @@ class ConfigurationVerifier:
             type=pipeline_type,
             cron=cron_expression,
             endpoint=endpoint,
+            policy=policy,
             authentication=authentication,
             parameters=parameters,
             mapping=mapping,
         )
+
+    def _parse_policy(self, raw_policy: Any, pipeline_id: str) -> str:
+        if raw_policy is None:
+            return "schedule"
+
+        if not isinstance(raw_policy, str):
+            raise ConfigurationError(
+                f"Pipeline '{pipeline_id}' policy must be a string."
+            )
+
+        normalized_policy = raw_policy.strip()
+        if normalized_policy not in {"startupAndSchedule", "schedule"}:
+            raise ConfigurationError(
+                f"Pipeline '{pipeline_id}' policy must be 'startupAndSchedule' or 'schedule'."
+            )
+
+        return normalized_policy
 
     def _parse_authentication(
         self,

@@ -47,11 +47,12 @@ The following assumptions were made while mapping GTFS static data into the Time
 | A1 | The feed is standard GTFS static ZIP with files at ZIP root (not in a nested directory). | Required for deterministic streaming extraction and parser discovery. |
 | A2 | `stops.txt`, `routes.txt`, `trips.txt`, `stop_times.txt`, and at least one service-calendar source (`calendar.txt` and/or `calendar_dates.txt`) are present and parseable. | These files are required to produce complete `dim_stops`, `dim_trips`, and `fact_stop_times`. |
 | A3 | Timeline `instance_id` is injected from pipeline runtime context (configuration instance), not from GTFS. | GTFS has no tenant/instance concept. |
-| A4 | `operation_day_date` is always the current calendar date when the pipeline run starts. A future pipeline version may apply a configured day offset to this base date. | Aligns ingestion scope to one concrete service day per run. |
-| A5 | GTFS times in `stop_times.arrival_time` and `stop_times.departure_time` are interpreted in `agency.agency_timezone`. Values over 24:00:00 are rolled to the next calendar day(s). | Matches GTFS spec and allows consistent conversion to Timeline `timestamptz` fields. |
+| A4 | `operation_day_date` is derived from the current calendar date in `PROCESSOR_TIMEZONE` at pipeline runtime. A future pipeline version may apply a configured day offset to this base date. | Keeps service-day selection aligned with scheduler and configured runtime timezone boundaries. |
+| A5 | GTFS times in `stop_times.arrival_time` and `stop_times.departure_time` are first interpreted in `agency.agency_timezone` and then converted to `PROCESSOR_TIMEZONE` before loading. Values over 24:00:00 are rolled to the next calendar day(s). | Matches GTFS source semantics while normalizing all Timeline timestamps to one configured timezone. |
+| A15 | If `agency.txt` is missing or no usable `agency_timezone` is available, the pipeline falls back to `PROCESSOR_TIMEZONE` as source timezone for GTFS time parsing. | Provides deterministic timezone behavior for feeds without agency timezone metadata. |
 | A6 | `dim_trips.nom_start_time`/`nom_end_time` come from first/last ordered stop_time timestamps for a trip on a service day. | Needed because GTFS does not provide explicit trip start/end timestamp fields. |
 | A7 | `dim_trips.nom_start_stop_id`/`nom_end_stop_id` come from the first/last ordered `stop_times.stop_id` per trip/service day. | Required by non-null constraints in Timeline schema. |
-| A8 | `route_name` in Timeline is resolved as `routes.route_long_name` if present, otherwise `routes.route_short_name`, otherwise `route_id`. | GTFS allows either short or long name; Timeline requires a non-null route_name. |
+| A8 | `route_name` in Timeline is resolved as `routes.route_short_name` if present, otherwise `routes.route_long_name`, otherwise `route_id`. | GTFS allows either short or long name; Timeline requires a non-null route_name. |
 | A9 | `concessionaire_id` is mapped from GTFS `agency_id`; `concessionaire_name` from `agency_name`. If resolution fails, fallback values are taken from pipeline parameters `fallback_agency_id` and `fallback_agency_name`. | Timeline requires non-null concession fields; GTFS may omit `agency_id` in single-agency feeds. |
 | A10 | GTFS static does not provide operator ownership in this model scope, therefore `operator_id` and `operator_name` are always set to null. | Keeps semantics explicit and avoids pseudo-operator values. |
 | A11 | `schedule_relationship` for nominal records defaults to `UNKNOWN` unless a deterministic static classification rule is added later. | GTFS static does not expose realtime-like schedule relationship values. |
@@ -65,12 +66,12 @@ The following assumptions were made while mapping GTFS static data into the Time
 | --- | --- | --- | --- |
 | T1 | GTFS ZIP stream from `endpoint` | Stream download to temporary file or stream buffer with checksum/size validation and hard fail on incomplete archive. | Validated ZIP artifact |
 | T2 | ZIP entries | Stream enumerate root-level `.txt` files and build file manifest. | File availability manifest |
-| T3 | `calendar.txt`, `calendar_dates.txt` | Extract all valid `service_id` values for the current calendar date (`operation_day_date`) using `calendar` rules with `calendar_dates` additions/removals, or from the single available file if only one exists. | `valid_service_ids_for_today` |
+| T3 | `calendar.txt`, `calendar_dates.txt` | Extract all valid `service_id` values for the current calendar date (`operation_day_date`) derived in `PROCESSOR_TIMEZONE`, using `calendar` rules with `calendar_dates` additions/removals, or from the single available file if only one exists. | `valid_service_ids_for_today` |
 | T4 | `agency.txt` | Build agency lookup (`agency_id`, `agency_name`, timezone). | Agency lookup index |
 | T5 | `routes.txt` | Normalize route names and attach agency/concession metadata with fallback for missing `agency_id`. | Route lookup index |
 | T6 | `stops.txt` + referenced `stop_times.stop_id` | Use location_type 0 or empty as primary rule, but if a trip references a stop with another location type, still import that referenced stop to preserve referential completeness. If stop coordinates are missing or invalid, set `stop_lat` and `stop_lon` to `0.0` and keep the row. | `dim_stops` candidate rows |
 | T7 | `trips.txt` | Join trips to routes and keep only trips whose `service_id` is in `valid_service_ids_for_today`. | Current-day trip metadata stream |
-| T8 | `stop_times.txt` | Group by trip_id in stop_sequence order; parse GTFS time strings, including values >24:00:00. | Ordered trip stop-time stream |
+| T8 | `stop_times.txt` + timezone context | Group by trip_id in stop_sequence order; parse GTFS time strings in agency timezone (fallback `PROCESSOR_TIMEZONE`), including values >24:00:00, then convert parsed timestamps to `PROCESSOR_TIMEZONE`. | Ordered trip stop-time stream in processor timezone |
 | T9 | Current-day trip metadata + ordered stop_times | Compute nominal trip aggregates: start/end timestamps, start/end stops, `nom_total_distance`, and `schedule_relationship`. Also set `act_total_distance` to null. | `dim_trips` nominal rows |
 | T10 | Current-day trip metadata + ordered stop_times | Emit per-stop fact rows with resolved nominal timestamps, distance_from_start, and schedule_relationship for the same current day. | `fact_stop_times` nominal rows |
 | T11 | Nominal outputs | Set all `act_*` fields to null for nominal pipeline output objects. | Timeline-compatible nominal model objects |
@@ -86,16 +87,16 @@ The following assumptions were made while mapping GTFS static data into the Time
 | `dim_stops` | `stop_lat` | `stops.stop_lat` | Parse to `double precision`; if missing/unparseable set to `0.0`. |
 | `dim_stops` | `stop_lon` | `stops.stop_lon` | Parse to `double precision`; if missing/unparseable set to `0.0`. |
 | `dim_trips` | `instance_id` | runtime instance | Inject from scheduler pipeline context. |
-| `dim_trips` | `operation_day_date` | pipeline runtime date | Set to the current calendar date of the pipeline run (future-compatible with configurable day offset). |
+| `dim_trips` | `operation_day_date` | pipeline runtime date | Set to the current calendar date of the pipeline run in `PROCESSOR_TIMEZONE` (future-compatible with configurable day offset). |
 | `dim_trips` | `trip_id` | `trips.trip_id` | Direct mapping. |
 | `dim_trips` | `route_id` | `trips.route_id` | Direct mapping. |
-| `dim_trips` | `route_name` | `routes.route_long_name` / `routes.route_short_name` / `routes.route_id` | Prefer long name, else short name, else route_id fallback. |
+| `dim_trips` | `route_name` | `routes.route_short_name` / `routes.route_long_name` / `routes.route_id` | Prefer short name, else long name, else route_id fallback. |
 | `dim_trips` | `concessionaire_id` | `routes.agency_id` or parameter fallback | Map from route agency; fallback to `parameters.fallback_agency_id` when missing. |
 | `dim_trips` | `concessionaire_name` | `agency.agency_name` or parameter fallback | Resolve by agency lookup; fallback to `parameters.fallback_agency_name` when missing. |
 | `dim_trips` | `operator_id` | n/a (static feed) | Set `null`. |
 | `dim_trips` | `operator_name` | n/a (static feed) | Set `null`. |
-| `dim_trips` | `nom_start_time` | first ordered stop_time per trip | Convert GTFS time to `timestamptz` using operation_day_date + agency timezone. |
-| `dim_trips` | `nom_end_time` | last ordered stop_time per trip | Convert GTFS time to `timestamptz` using operation_day_date + agency timezone. |
+| `dim_trips` | `nom_start_time` | first ordered stop_time per trip | Parse GTFS time using operation_day_date + agency timezone (fallback `PROCESSOR_TIMEZONE`), then convert to `PROCESSOR_TIMEZONE`. |
+| `dim_trips` | `nom_end_time` | last ordered stop_time per trip | Parse GTFS time using operation_day_date + agency timezone (fallback `PROCESSOR_TIMEZONE`), then convert to `PROCESSOR_TIMEZONE`. |
 | `dim_trips` | `act_start_time` | n/a (static feed) | Set `null`. |
 | `dim_trips` | `act_end_time` | n/a (static feed) | Set `null`. |
 | `dim_trips` | `nom_start_stop_id` | first ordered `stop_times.stop_id` | Direct mapping from first stop-time record in the imported trip. |
@@ -104,12 +105,12 @@ The following assumptions were made while mapping GTFS static data into the Time
 | `dim_trips` | `act_total_distance` | n/a (static feed) | Set `null`. |
 | `dim_trips` | `schedule_relationship` | n/a (static feed) | Set default `UNKNOWN`. |
 | `fact_stop_times` | `instance_id` | runtime instance | Inject from scheduler pipeline context. |
-| `fact_stop_times` | `operation_day_date` | pipeline runtime date | Same current calendar date used for trip import scope. |
+| `fact_stop_times` | `operation_day_date` | pipeline runtime date | Same current calendar date used for trip import scope in `PROCESSOR_TIMEZONE`. |
 | `fact_stop_times` | `trip_id` | `stop_times.trip_id` | Direct mapping. |
 | `fact_stop_times` | `stop_id` | `stop_times.stop_id` | Direct mapping. |
 | `fact_stop_times` | `distance_from_start` | `stop_times.shape_dist_traveled` or fallback | Prefer shape_dist_traveled, else monotonic fallback from stop_sequence. |
-| `fact_stop_times` | `nom_arrival_time` | `stop_times.arrival_time` | Convert GTFS time to `timestamptz` using service day + agency timezone; if missing use departure_time. |
-| `fact_stop_times` | `nom_departure_time` | `stop_times.departure_time` | Convert GTFS time to `timestamptz` using service day + agency timezone; if missing use arrival_time. |
+| `fact_stop_times` | `nom_arrival_time` | `stop_times.arrival_time` | Parse GTFS time using service day + agency timezone (fallback `PROCESSOR_TIMEZONE`), convert to `PROCESSOR_TIMEZONE`; if missing use departure_time. |
+| `fact_stop_times` | `nom_departure_time` | `stop_times.departure_time` | Parse GTFS time using service day + agency timezone (fallback `PROCESSOR_TIMEZONE`), convert to `PROCESSOR_TIMEZONE`; if missing use arrival_time. |
 | `fact_stop_times` | `act_arrival_time` | n/a (static feed) | Set `null`. |
 | `fact_stop_times` | `act_departure_time` | n/a (static feed) | Set `null`. |
 | `fact_stop_times` | `schedule_relationship` | n/a (static feed) | Set default `UNKNOWN`. |

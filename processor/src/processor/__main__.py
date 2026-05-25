@@ -1,13 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import os
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from alembic import command
+from alembic.config import Config
 import structlog
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
 
 from .config_verifier import ConfigurationError, ConfigurationVerifier
-from .scheduler import NoopPipelineExecutor, PipelineScheduler
+from .loading.loading_service import LoadingService
+from .mapping.mapping_service import MappingService
+from .pipelines import GtfsNominalPipeline, TimelinePipelineExecutor
+from .repository import SqlAlchemyTimelineRepository
+from .scheduler import PipelineScheduler
 
 LOGGER = structlog.get_logger(__name__)
 
@@ -33,8 +43,49 @@ def _resolve_startup_paths() -> tuple[Path, Path]:
     return config_path, mapping_root
 
 
+def _resolve_processor_timezone_name() -> str:
+    timezone_name = os.getenv("PROCESSOR_TIMEZONE", "UTC").strip() or "UTC"
+    try:
+        ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError as exc:
+        LOGGER.error("processor_timezone_invalid", processor_timezone=timezone_name)
+        raise SystemExit(1) from exc
+    return timezone_name
+
+
+def _create_session_factory(database_url: str) -> sessionmaker[Session]:
+    engine = create_engine(database_url, pool_pre_ping=True)
+    return sessionmaker(bind=engine, expire_on_commit=False)
+
+
+def _run_migrations() -> None:
+    alembic_ini_path = Path(os.getenv("PROCESSOR_ALEMBIC_INI_PATH", "/app/alembic.ini")).resolve()
+
+    if not alembic_ini_path.exists():
+        fallback_ini_path = Path(__file__).resolve().parents[2] / "alembic.ini"
+        if fallback_ini_path.exists():
+            alembic_ini_path = fallback_ini_path
+        else:
+            LOGGER.error("alembic_ini_missing", alembic_ini_path=str(alembic_ini_path))
+            raise SystemExit(1)
+
+    LOGGER.info("database_migration_started", alembic_ini_path=str(alembic_ini_path))
+    alembic_config = Config(str(alembic_ini_path))
+    alembic_config.set_main_option(
+        "script_location",
+        str((alembic_ini_path.parent / "alembic").resolve()),
+    )
+    try:
+        command.upgrade(alembic_config, "head")
+    except Exception:
+        LOGGER.exception("database_migration_failed")
+        raise SystemExit(1)
+    LOGGER.info("database_migration_completed")
+
+
 async def _run() -> None:
     config_path, mapping_root = _resolve_startup_paths()
+    processor_timezone_name = _resolve_processor_timezone_name()
     verifier = ConfigurationVerifier(mapping_root=mapping_root)
 
     try:
@@ -43,18 +94,38 @@ async def _run() -> None:
         LOGGER.error("configuration_validation_failed", error=str(exc))
         raise SystemExit(1) from exc
 
+    parsed_config = replace(parsed_config, timezone_name=processor_timezone_name)
+
+    processor_database_url = os.getenv("PROCESSOR_DATABASE_URL")
+    if not processor_database_url:
+        LOGGER.error("processor_database_url_missing")
+        raise SystemExit(1)
+
+    _run_migrations()
+
+    session_factory = _create_session_factory(processor_database_url)
+    repository = SqlAlchemyTimelineRepository(session_factory=session_factory)
+    loading_service = LoadingService(repository=repository)
+    mapping_service = MappingService()
+    gtfs_nominal_pipeline = GtfsNominalPipeline(
+        loading_service=loading_service,
+        mapping_service=mapping_service,
+        processor_timezone_name=processor_timezone_name,
+    )
+
     scheduler = PipelineScheduler(
         config=parsed_config,
-        executor=NoopPipelineExecutor(),
+        executor=TimelinePipelineExecutor(
+            mapping_service=mapping_service,
+            gtfs_nominal_pipeline=gtfs_nominal_pipeline,
+        ),
     )
 
     LOGGER.info("processor_started")
-    LOGGER.info(
-        "database_url_resolved",
-        processor_database_url=os.getenv("PROCESSOR_DATABASE_URL", "<not-set>"),
-    )
+    LOGGER.info("database_url_resolved", processor_database_url=processor_database_url)
     LOGGER.info("config_path_resolved", config_path=str(config_path))
     LOGGER.info("mapping_root_resolved", mapping_root=str(mapping_root))
+    LOGGER.info("processor_timezone_resolved", processor_timezone=processor_timezone_name)
 
     await scheduler.run_forever()
 

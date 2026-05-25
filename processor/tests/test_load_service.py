@@ -3,6 +3,11 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 import unittest
 
+try:
+    from . import _test_bootstrap
+except ImportError:
+    import _test_bootstrap
+
 from processor.loading.loading_service import LoadingService
 from processor.loading.models import StopRecord, StopTimeRecord, TripRecord
 from processor.repository.intf_timeline_repository import TimelineRepositoryInterface
@@ -12,8 +17,21 @@ class RecordingRepository(TimelineRepositoryInterface):
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, int]] = []
 
+    async def upsert_nominal_stops(self, instance_id: str, stops: list[StopRecord]) -> None:
+        self.calls.append(("upsert_nominal_stops", instance_id, len(stops)))
+
+    async def upsert_nominal_trips(self, instance_id: str, trips: list[TripRecord]) -> None:
+        self.calls.append(("upsert_nominal_trips", instance_id, len(trips)))
+
+    async def upsert_nominal_stop_times(
+        self,
+        instance_id: str,
+        stop_times: list[StopTimeRecord],
+    ) -> None:
+        self.calls.append(("upsert_nominal_stop_times", instance_id, len(stop_times)))
+
     async def insert_nominal_stops(self, instance_id: str, stops: list[StopRecord]) -> None:
-        self.calls.append(("insert_nominal_stops", instance_id, len(stops)))
+        await self.upsert_nominal_stops(instance_id=instance_id, stops=stops)
 
     async def insert_nominal_trip_with_stop_times(
         self,
@@ -21,7 +39,8 @@ class RecordingRepository(TimelineRepositoryInterface):
         trip: TripRecord,
         stop_times: list[StopTimeRecord],
     ) -> None:
-        self.calls.append(("insert_nominal_trip_with_stop_times", instance_id, len(stop_times)))
+        await self.upsert_nominal_trips(instance_id=instance_id, trips=[trip])
+        await self.upsert_nominal_stop_times(instance_id=instance_id, stop_times=stop_times)
 
     async def upsert_realtime_trip(self, instance_id: str, trip: TripRecord) -> None:
         self.calls.append(("upsert_realtime_trip", instance_id, 1))
@@ -46,7 +65,7 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
 
         await service.load_nominal_stops(instance_id="demo", stops=stops)
 
-        self.assertEqual([("insert_nominal_stops", "demo", 2)], repository.calls)
+        self.assertEqual([("upsert_nominal_stops", "demo", 2)], repository.calls)
 
     async def test_nominal_trip_and_stop_times_are_delegated_to_repository(self) -> None:
         repository = RecordingRepository()
@@ -90,7 +109,10 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(
-            [("insert_nominal_trip_with_stop_times", "demo", 1)],
+            [
+                ("upsert_nominal_trips", "demo", 1),
+                ("upsert_nominal_stop_times", "demo", 1),
+            ],
             repository.calls,
         )
 

@@ -5,6 +5,8 @@ instance:
         name: "gtfs"
         type: "nominal"
         cron: "0 2 * * *"
+        # Optional; defaults to "schedule"
+        policy: "startupAndSchedule"
         endpoint: "https://api.example.com/schedule"
         mapping:
           stops: "mapping/stops.csv"
@@ -18,6 +20,7 @@ instance:
         name: "gtfsrt-tripupdates"
         type: "realtime"
         cron: "* * * * *"
+        policy: "schedule"
         # Optional high-frequency schedule: "*/10 * * * * *" (every 10 seconds)
         endpoint: "https://api.example.com/realtime"
         mapping:

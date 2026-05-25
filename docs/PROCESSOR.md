@@ -26,7 +26,13 @@ The processor project uses a `src` layout and is managed as a standalone Python 
 
 The service runs inside Docker and receives its database connection through the `PROCESSOR_DATABASE_URL` environment variable inside the container.
 
+The scheduler timezone is configured through `PROCESSOR_TIMEZONE` (IANA timezone string like `Europe/Berlin`).
+If not set, `UTC` is used.
+
 The scheduler configuration is read from a YAML file mounted in the container at `/app/config/config.yaml`.
+
+Before the scheduler starts, the processor executes Alembic migrations to `head` during startup.
+If migration execution fails, service startup fails fast and no pipeline scheduling begins.
 
 The container is intentionally minimal:
 
@@ -164,10 +170,20 @@ Only valid instances and pipelines are activated. Invalid configuration must fai
 
 Scheduling is configured per pipeline through the pipeline `cron` expression.
 
+Cron schedules are evaluated in the configured processor timezone (`PROCESSOR_TIMEZONE`).
+This timezone also defines the scheduler's "current time" reference for calculating delays until the next run.
+
 The scheduler supports both minute-based five-field cron expressions and second-based six-field cron expressions.
 Example second-level schedules include `*/10 * * * * *` (every 10 seconds).
 
 Each scheduled pipeline run is executed asynchronously so that high-frequency realtime jobs do not block other pipelines.
+
+Scheduler overlap behavior:
+
+- a pipeline is uniquely identified by the pair `instance.id` + `pipeline.id`
+- at most one run of the same pipeline pair may execute concurrently
+- if the next cron tick occurs while that pipeline pair is still running, that tick is skipped (no queued backlog for skipped ticks)
+- pipelines from different instances may still run concurrently
 
 Expected operation pattern:
 
@@ -200,11 +216,12 @@ The container starts the Python module directly:
 1. Docker Compose builds the processor image from `processor/Dockerfile`.
 2. The container starts with `python -m processor`.
 3. The entrypoint loads and validates `/app/config/config.yaml`.
-4. The entrypoint initializes the scheduler.
-5. The scheduler continuously triggers nominal and realtime pipeline runs per instance using each pipeline cron expression.
-6. Each scheduled run executes asynchronously.
-7. Pipelines extract and transform data, then hand normalized output to the central load service.
-8. The central load service persists isolated instance data to PostgreSQL and performs matching workflows with atomic transaction boundaries.
+4. The entrypoint runs Alembic migrations to schema `head`.
+5. The entrypoint initializes the scheduler.
+6. The scheduler continuously triggers nominal and realtime pipeline runs per instance using each pipeline cron expression.
+7. Each scheduled run executes asynchronously, with overlap skipping for already-running instance/pipeline pairs.
+8. Pipelines extract and transform data, then hand normalized output to the central load service.
+9. The central load service persists isolated instance data to PostgreSQL and performs matching workflows with atomic transaction boundaries.
 
 ## Relationship to the Repository
 

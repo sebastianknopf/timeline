@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import unittest
 
+try:
+    from . import _test_bootstrap
+except ImportError:
+    import _test_bootstrap
+
 from sqlalchemy.dialects import postgresql
 
 from processor.database import Base

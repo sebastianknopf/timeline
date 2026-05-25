@@ -30,9 +30,15 @@ Each pipeline object defines:
 - `type`: pipeline type, expected values are `nominal` or `realtime`
 - `cron`: cron expression used to schedule this pipeline
 - `endpoint`: source endpoint URL or address
+- `policy` (optional): execution policy for cron scheduling behavior. Allowed values are `schedule` and `startupAndSchedule`. Default is `schedule`.
 - `authentication` (optional): authentication object when required by the endpoint
 - `parameters` (optional): object containing arbitrary pipeline-specific key/value parameters passed to the selected pipeline implementation
 - `mapping` (optional): mapping file configuration for identifier translation inputs
+
+Pipeline policy behavior:
+
+- `schedule`: execute only on cron ticks.
+- `startupAndSchedule`: execute once at processor startup and then continue executing on cron ticks.
 
 `mapping` can contain these optional keys:
 
@@ -85,13 +91,14 @@ Minimum validation requirements:
 4. Each pipeline has non-empty `id`, `name`, `type`, `cron`, and `endpoint`.
 5. Pipeline `type` is either `nominal` or `realtime`.
 6. Pipeline `name` matches a known pipeline definition document.
-7. If `authentication` is present, it is either:
+7. If `policy` is present, it must be either `schedule` or `startupAndSchedule`.
+8. If `authentication` is present, it is either:
    - `{ token: <value> }`
    - `{ username: <value>, password: <value> }`
-8. If `parameters` is present, it must be a YAML object (mapping). Its keys are pipeline-defined and may vary by pipeline name.
-9. If `mapping` is present, it must be a YAML object (mapping) containing only `stops` and/or `routes`.
-10. If mapping files are provided, they must be readable CSV files containing at least `key` and `value` columns.
-11. If a mapping key contains `*`, it must be interpreted as a wildcard pattern by the mapping resolver.
+9. If `parameters` is present, it must be a YAML object (mapping). Its keys are pipeline-defined and may vary by pipeline name.
+10. If `mapping` is present, it must be a YAML object (mapping) containing only `stops` and/or `routes`.
+11. If mapping files are provided, they must be readable CSV files containing at least `key` and `value` columns.
+12. If a mapping key contains `*`, it must be interpreted as a wildcard pattern by the mapping resolver.
 
 If validation fails, startup must fail and no pipelines are run.
 
@@ -119,3 +126,12 @@ The processor mounts a mapping root directory to `/etc/mapping` in the container
 - Default value is the current project directory (`.`)
 
 This allows mapping paths in `config.yaml` to be portable across local and container execution.
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `PROCESSOR_DATABASE_URL` | yes | n/a | PostgreSQL connection URL used by the repository. |
+| `PROCESSOR_CONFIG_PATH` | no | `/app/config/config.yaml` | Absolute path to the processor YAML configuration file. |
+| `PROCESSOR_MAPPING_ROOT` | no | `/etc/mapping` | Root directory for resolving relative mapping file paths. |
+| `PROCESSOR_ALEMBIC_INI_PATH` | no | `/app/alembic.ini` | Path to the Alembic INI file used for database migrations. |
+| `PROCESSOR_TIMEZONE` | no | `UTC` | IANA timezone name (for example `Europe/Berlin`) used as the processor runtime timezone for scheduler and date/time handling. |

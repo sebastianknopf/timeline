@@ -4,6 +4,11 @@ import tempfile
 from pathlib import Path
 import unittest
 
+try:
+  from . import _test_bootstrap
+except ImportError:
+  import _test_bootstrap
+
 from processor.config_verifier import ConfigurationError, ConfigurationVerifier
 
 
@@ -51,6 +56,7 @@ instance:
             self.assertEqual(1, len(parsed.instances))
             self.assertEqual("demo", parsed.instances[0].id)
             self.assertEqual(2, len(parsed.instances[0].pipelines))
+            self.assertEqual("schedule", parsed.instances[0].pipelines[0].policy)
 
     def test_load_and_validate_accepts_second_based_cron_expression(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir_str:
@@ -74,6 +80,57 @@ instance:
             parsed = verifier.load_and_validate(config_file)
 
             self.assertEqual("*/10 * * * * *", parsed.instances[0].pipelines[0].cron)
+
+    def test_load_and_validate_accepts_pipeline_startup_and_schedule_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            config_file = tmp_dir / "config.yaml"
+            config_file.write_text(
+                """
+instance:
+  - id: demo
+    pipeline:
+      - id: nominal-main
+        name: gtfs
+        type: nominal
+        cron: "0 2 * * *"
+        endpoint: "https://example.test/nominal"
+        policy: "startupAndSchedule"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            verifier = ConfigurationVerifier(mapping_root=tmp_dir)
+            parsed = verifier.load_and_validate(config_file)
+
+            self.assertEqual(
+                "startupAndSchedule",
+                parsed.instances[0].pipelines[0].policy,
+            )
+
+    def test_load_and_validate_rejects_invalid_pipeline_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            config_file = tmp_dir / "config.yaml"
+            config_file.write_text(
+                """
+instance:
+  - id: demo
+    pipeline:
+      - id: nominal-main
+        name: gtfs
+        type: nominal
+        cron: "0 2 * * *"
+        endpoint: "https://example.test/nominal"
+        policy: "startup"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            verifier = ConfigurationVerifier(mapping_root=tmp_dir)
+
+            with self.assertRaises(ConfigurationError):
+                verifier.load_and_validate(config_file)
 
     def test_load_and_validate_rejects_invalid_authentication_shape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir_str:

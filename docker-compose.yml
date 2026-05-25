@@ -30,6 +30,7 @@ services:
       PROCESSOR_DATABASE_URL: ${PROCESSOR_DATABASE_URL}
       PROCESSOR_CONFIG_PATH: /app/config/config.yaml
       PROCESSOR_MAPPING_ROOT: /etc/mapping
+      PROCESSOR_TIMEZONE: ${PROCESSOR_TIMEZONE:-UTC}
       PYTHONUNBUFFERED: "1"
     command: ["python", "-m", "processor"]
     volumes:

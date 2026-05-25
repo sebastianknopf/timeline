@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 PipelineType = Literal["nominal", "realtime"]
+PipelinePolicy = Literal["startupAndSchedule", "schedule"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +28,7 @@ class PipelineConfig:
     type: PipelineType
     cron: str
     endpoint: str
+    policy: PipelinePolicy = "schedule"
     authentication: AuthenticationConfig | None = None
     parameters: dict[str, object] = field(default_factory=dict)
     mapping: MappingConfig | None = None
@@ -41,3 +43,4 @@ class InstanceConfig:
 @dataclass(frozen=True, slots=True)
 class ProcessorConfig:
     instances: tuple[InstanceConfig, ...]
+    timezone_name: str = "UTC"

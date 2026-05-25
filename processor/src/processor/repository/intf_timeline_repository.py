@@ -6,6 +6,27 @@ from ..loading.models import StopRecord, StopTimeRecord, TripRecord
 
 
 class TimelineRepositoryInterface(Protocol):
+    async def upsert_nominal_stops(
+        self,
+        instance_id: str,
+        stops: list[StopRecord],
+    ) -> None:
+        """Upsert nominal stops for one instance."""
+
+    async def upsert_nominal_trips(
+        self,
+        instance_id: str,
+        trips: list[TripRecord],
+    ) -> None:
+        """Upsert nominal trips for one instance."""
+
+    async def upsert_nominal_stop_times(
+        self,
+        instance_id: str,
+        stop_times: list[StopTimeRecord],
+    ) -> None:
+        """Upsert nominal stop times for one instance."""
+
     async def insert_nominal_stops(
         self,
         instance_id: str,

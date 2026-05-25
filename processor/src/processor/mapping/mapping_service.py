@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
 
-from ..loading.models import StopTimeRecord, TripRecord
+from ..loading.models import StopRecord, StopTimeRecord, TripRecord
 from ..runtime_config import PipelineConfig
 from .intf_mapping_service import MappingServiceInterface
 
@@ -46,6 +46,23 @@ class MappingService(MappingServiceInterface):
     async def map_stop_id(self, instance_id: str, pipeline_id: str, stop_id: str) -> str:
         mapping_data = self._get_mapping_data(instance_id, pipeline_id)
         return self._map_value(stop_id, mapping_data.stops)
+
+    async def map_stop_records(
+        self,
+        instance_id: str,
+        pipeline_id: str,
+        stops: list[StopRecord],
+    ) -> list[StopRecord]:
+        mapping_data = self._get_mapping_data(instance_id, pipeline_id)
+        return [
+            StopRecord(
+                stop_id=self._map_value(stop.stop_id, mapping_data.stops),
+                stop_name=stop.stop_name,
+                stop_lat=stop.stop_lat,
+                stop_lon=stop.stop_lon,
+            )
+            for stop in stops
+        ]
 
     async def map_records_for_loading(
         self,
