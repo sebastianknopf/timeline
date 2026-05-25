@@ -97,7 +97,7 @@ The central load service owns all load-phase responsibilities:
 - ensuring atomic database behavior even when asynchronous pipeline runs call the service concurrently
 - resolving realtime `StopTimeEvent` values by preferring absolute timestamps and using delay-as-offset-to-nominal fallback
 - enforcing realtime update scope so conflict updates only touch `act_*` and `schedule_relationship`
-- deriving `dim_trips.act_start_time` and `dim_trips.act_end_time` from first/last nominal stop rows, with nominal fallback when realtime values are missing
+- deriving `dim_trips.act_start_time` and `dim_trips.act_end_time` from first/last nominal departure rows ordered by `stop_sequence` (with nominal departure tie-break), with nominal departure fallback when realtime values are missing
 - persisting `dim_trips.act_end_time` only after the derived end candidate timestamp is reached (`<= now`), otherwise keeping it `NULL`
 
 

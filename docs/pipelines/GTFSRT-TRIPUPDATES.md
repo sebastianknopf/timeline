@@ -47,12 +47,13 @@ The following assumptions were made while mapping GTFS Realtime TripUpdate data 
 | A2 | `operation_day_date` is resolved from `TripDescriptor.start_date` when present; otherwise the current calendar date at runtime in `PROCESSOR_TIMEZONE` is used as fallback. In this realtime pipeline, that resolved `operation_day_date` is the date used for matching and finding the corresponding nominal trip. | Supports late/overlapping realtime updates (for example updates still referencing yesterday service date). |
 | A3 | `instance_id` is injected from runtime pipeline instance context. | GTFS Realtime has no native tenant key. |
 | A4 | `TripDescriptor` resolves to a single trip instance (typically via `trip_id`, with start_date/start_time for frequency-based ambiguity). | Prevents ambiguous writes across multiple trip instances. |
-| A5 | The central load service owns identifier matching when a realtime trip/stop cannot be directly matched to existing nominal data. | Matches repository architecture responsibilities. |
+| A5 | The central load service owns nominal-baseline matching. When nominal data is loaded for a trip, each realtime stop-time row is matched to the nominal stop by `stop_sequence`. Stop-time rows that cannot be matched to a nominal sequence are silently dropped. For nominally unknown trips (A10), all rows pass through unmatched. | Guarantees every persisted stop-time row has correct `nom_arrival_time`, `nom_departure_time`, and `distance_from_start` values derived from the schedule. |
 | A6 | `operator_id` and `operator_name` remain null in this pipeline because GTFS-RT TripUpdate does not provide authoritative operator ownership for this model. | Keeps semantics consistent with current database model decisions. |
 | A7 | For mutable realtime fields (`act_*`, `schedule_relationship`), the latest valid information seen wins. | Required by business rule for realtime state convergence. |
 | A8 | A trip that has entirely run until its last station is considered closed and is no longer transformed or updated by this pipeline. The completion decision is based on realtime status, not on nominal status. | Required by business rule to avoid reopening completed trips and to ensure realtime authority over completion state. |
-| A9 | Stop-time updates whose arrival or departure timestamp is earlier than processing time (`now`) are not touched anymore. | Required by business rule to freeze past events. |
+| A9 | Stop-time updates are processed regardless of whether timestamps are in the past or future. | Required by business rule to keep full trip-update state convergent. |
 | A10 | For nominally unknown trips for the resolved `operation_day_date`, realtime updates may still be accepted and passed to load service for matching/upsert workflows. | Supports delayed nominal ingestion and replacement/new trip scenarios. |
+| A11 | When a `StopTimeUpdate` provides a delay or absolute time correction for a stop but the feed does not include explicit updates for all subsequent stops, the central load service propagates the last known effective delay forward to every subsequent nominal stop that has no explicit update. Propagation iterates through the nominal stop sequence in ascending `stop_sequence` order. The effective delay is re-computed at each new explicit update and carried forward again from that point. `schedule_relationship` is always set to `SCHEDULED` for synthesized propagated stops; explicit stop updates retain their own `schedule_relationship`. Stops that precede the first explicit update in the nominal sequence are not affected. | Ensures a complete realtime picture of the trip even when the feed only delivers partial stop coverage, matching the GTFS-RT specification propagation rule. |
 
 ## Transformations
 
@@ -63,13 +64,15 @@ The following assumptions were made while mapping GTFS Realtime TripUpdate data 
 | T3 | `FeedEntity.trip_update` entries | Keep only entities with `trip_update`; ignore unrelated entity types. | TripUpdate stream |
 | T4 | `TripDescriptor` + static/nominal keys | Resolve trip identity and key tuple (`instance_id`, `operation_day_date`, `trip_id`) for model writes, where `operation_day_date` comes from `TripDescriptor.start_date` or runtime-date fallback when absent. | Resolved trip keys |
 | T5 | TripUpdate stream | Drop updates for trips already marked as completed (fully run to last station). | Active trip updates only |
-| T6 | `StopTimeUpdate` rows | Normalize stop selector (`stop_sequence` preferred for repeated stops, else `stop_id`) and resolve arrival/departure event times with strict priority: absolute `time` first, `delay` only as fallback when `time` is missing. Delay fallback is derived from `TripUpdate.timestamp`, then `FeedHeader.timestamp`, then processing time. | Normalized stop-time update rows |
-| T7 | Normalized rows + `now` | Central load service excludes rows where both effective arrival/departure timestamps (absolute event timestamp or delay-as-offset-to-nominal fallback) are earlier than `now`. | Mutable realtime rows |
+| T6 | `StopTimeUpdate` rows | Normalize stop selector (`stop_sequence` preferred, `stop_id` secondary) and resolve event values with strict priority: absolute `time` first, `delay` only as fallback when `time` is missing. Delay fallback is calculated as offset to nominal stop-time values (arrival/departure respectively) in central load service. | Normalized stop-time update rows |
+| T6a | Normalized stop rows | If only one realtime side exists for a stop (`act_arrival_time` or `act_departure_time`), mirror it to the missing side before trip-boundary aggregation. | Synchronized realtime stop rows |
+| T6b | Explicit stop updates + nominal stop sequence | For each nominal stop that has no explicit `StopTimeUpdate`, check whether a preceding explicit update exists. If yes, synthesize a propagated `StopTimeRecord` using the tracked effective delay (arrival and departure handled separately) applied to the nominal baseline times for that stop. `schedule_relationship` is set to `SCHEDULED` for all synthesized records. Stops before the first explicit update remain untouched. The effective delay at each explicit stop is derived as: `round((act_arrival_time − nom_arrival_time).total_seconds())` when an absolute time is present; `arrival_delay_seconds` otherwise (same rule for departure). Each new explicit update resets the tracked delay for subsequent propagation from that point. | Fully propagated realtime stop-time stream including all nominal stops |
+| T7 | Normalized rows | Central load service keeps all rows after timestamp resolution (absolute or delay-as-offset-to-nominal fallback), independent of temporal position relative to `now`. | Mutable realtime rows |
 | T8 | Mutable realtime rows | Apply latest-wins merge for `act_arrival_time`, `act_departure_time`, and `schedule_relationship` using feed/TripUpdate timestamp ordering. | Resolved field updates |
 | T9 | Resolved rows | Build `fact_stop_times` upsert payload for resolved `operation_day_date` trip/stop keys. Only mutable realtime fields are modified. | Fact upsert batch |
-| T10 | Trip-level updates | Central load service derives trip-level realtime aggregates (`act_start_time`, `act_end_time`, `act_total_distance`) from stop order and nominal boundary rows. | `dim_trips` upsert batch |
+| T10 | Trip-level updates | Central load service derives trip-level realtime aggregates (`act_start_time`, `act_end_time`, `act_total_distance`) from stop order by explicit `stop_sequence` (nominal departure tie-break); boundaries use only first/last departure rows. | `dim_trips` upsert batch |
 | T11 | Trip-level schedule relation | Update `dim_trips.schedule_relationship` from TripDescriptor schedule relationship (latest-wins). | Trip schedule relation updates |
-| T12 | Final payloads | Convert all resolved realtime datetimes (including delay-derived values) to `PROCESSOR_TIMEZONE` before upsert. Upsert everything still mutable; do not touch completed trips or frozen past stop updates. | Realtime upsert payload |
+| T12 | Final payloads | Convert all resolved realtime datetimes (including delay-derived values) to `PROCESSOR_TIMEZONE` before upsert. Upsert everything still mutable; do not touch completed trips. | Realtime upsert payload |
 
 ## Mappings
 
@@ -78,8 +81,8 @@ The following assumptions were made while mapping GTFS Realtime TripUpdate data 
 | `dim_trips` | `instance_id` | runtime instance | Inject from scheduler pipeline context. |
 | `dim_trips` | `operation_day_date` | `TripDescriptor.start_date` or runtime fallback | Use `TripDescriptor.start_date` when present; otherwise use current calendar date at processing time in `PROCESSOR_TIMEZONE`. |
 | `dim_trips` | `trip_id` | `TripUpdate.trip.trip_id` | Direct mapping after trip resolution. |
-| `dim_trips` | `act_start_time` | first nominal stop row + realtime data | Uses first nominal stop realtime departure time when available, else first nominal stop realtime arrival time, else first nominal stop departure time (`nom_start_time`). |
-| `dim_trips` | `act_end_time` | last nominal stop row + realtime data | Candidate uses last nominal stop realtime arrival time when available, else last nominal stop realtime departure time, else last nominal stop arrival/departure nominal fallback. Persisted only when candidate timestamp is <= current processing timestamp; otherwise `NULL`. |
+| `dim_trips` | `act_start_time` | first nominal departure row + realtime data | Uses realtime departure from the first nominal departure row when present; otherwise uses that row's nominal departure time. |
+| `dim_trips` | `act_end_time` | last nominal departure row + realtime data | Uses realtime departure from the last nominal departure row when present; otherwise uses that row's nominal departure time. Persisted only when candidate timestamp is <= current processing timestamp; otherwise `NULL`. |
 | `dim_trips` | `act_total_distance` | max mutable stop distance | Derived from mutable stop updates; latest-wins per trip. |
 | `dim_trips` | `schedule_relationship` | `TripDescriptor.schedule_relationship` | Latest-wins update from trip-level schedule relationship. |
 | `dim_trips` | `operator_id` | n/a | Always `null`. |
@@ -88,8 +91,12 @@ The following assumptions were made while mapping GTFS Realtime TripUpdate data 
 | `fact_stop_times` | `operation_day_date` | `TripDescriptor.start_date` or runtime fallback | Use `TripDescriptor.start_date` when present; otherwise use current calendar date at processing time in `PROCESSOR_TIMEZONE`. |
 | `fact_stop_times` | `trip_id` | `TripUpdate.trip.trip_id` | Direct mapping after trip resolution. |
 | `fact_stop_times` | `stop_id` | `StopTimeUpdate.stop_id` or mapped from `stop_sequence` | Prefer explicit stop_id; otherwise resolve via nominal stop sequence mapping. |
+| `fact_stop_times` | `stop_sequence` | `StopTimeUpdate.stop_sequence` | Direct mapping when present; required for deterministic ordering, nominal matching, and as primary key column. |
+| `fact_stop_times` | `distance_from_start` | nominal baseline | Taken from the matching nominal stop-time row (keyed by `stop_sequence`) in the central load service. Set to `0.0` as an initial placeholder; replaced with the correct nominal value before every DB write when nominal data is loaded. Never computed from `stop_sequence` or event timestamps. |
 | `fact_stop_times` | `act_arrival_time` | `StopTimeEvent.time` or `StopTimeEvent.delay` | Prefer absolute `time`; if absent, use `delay` as offset to nominal arrival time; persist in `PROCESSOR_TIMEZONE`. |
 | `fact_stop_times` | `act_departure_time` | `StopTimeEvent.time` or `StopTimeEvent.delay` | Prefer absolute `time`; if absent, use `delay` as offset to nominal departure time; persist in `PROCESSOR_TIMEZONE`. |
+
+For one stop-time row, if exactly one of `act_arrival_time` / `act_departure_time` can be resolved, the missing counterpart is synchronized to the available value before boundary calculations.
 | `fact_stop_times` | `schedule_relationship` | `StopTimeUpdate.schedule_relationship` | Latest-wins update per stop row; default from trip-level if missing and policy applies. |
 
 ### StopTimeEvent Timestamp Priority
@@ -98,15 +105,16 @@ For each `StopTimeEvent` (`arrival`, `departure`), the resolver uses this strict
 
 1. `event.time` (absolute UNIX timestamp) is authoritative and always preferred.
 2. `event.delay` is used only when `event.time` is absent.
-3. Delay fallback is computed as offset to the nominal stop-time value (arrival/departure respectively).
+3. Delay fallback is computed as offset to the matching nominal stop-time value (arrival/departure respectively).
 
-All resolved timestamps from steps above are converted to `PROCESSOR_TIMEZONE` before filtering and persistence.
+All resolved timestamps from steps above are converted to `PROCESSOR_TIMEZONE` before persistence.
 
 ### Trip Boundary Time Derivation
 
 - `act_start_time` is always derived from the first stop-time row (stop order), not by taking a global minimum over all stops.
 - `act_end_time` is always derived from the last stop-time row (stop order), not by taking a global maximum over all stops.
-- If first/last stop realtime values are unavailable, fallback uses nominal boundary times from that same stop-time row (`nom_start_time`/`nom_end_time`).
+- Trip boundary ordering uses `stop_sequence` (with nominal departure tie-breaker) to identify first/last rows.
+- If first/last stop realtime departure values are unavailable, fallback uses nominal departure times from those same boundary rows.
 - `act_end_time` is persisted only when the derived end candidate timestamp is reached (`<= now`); otherwise it is stored as `NULL`.
 
 ## Update Rules
@@ -130,10 +138,7 @@ Nominal immutability rule:
 2. Completed-trip freeze:
 - If a trip has already run entirely to its last station, the trip is no longer transformed or updated.
 
-3. Past-stop freeze:
-- Stop-time updates with arrival/departure timestamps before current processing time are not touched anymore.
-
-4. Remaining mutable rows are upserted:
+3. Remaining mutable rows are upserted:
 - Everything that is not frozen by the rules above is upserted.
 
 ## Implementation Details
@@ -145,7 +150,7 @@ The GTFSRT-TRIPUPDATES pipeline should be implemented in streaming fashion end-t
 1. Open endpoint stream and decode protobuf feed message in streaming mode.
 2. Iterate TripUpdate entities incrementally.
 3. Resolve trip identity and skip closed/completed trips.
-4. Iterate stop_time_update rows, applying time-based freeze filtering (`< now`).
+4. Iterate stop_time_update rows and resolve realtime timestamps for all rows.
 5. Build bounded upsert batches for mutable trip-level and stop-level fields.
 6. Send batches to central load service; repeat on next scheduler tick.
 
@@ -167,10 +172,10 @@ The GTFSRT-TRIPUPDATES pipeline should be implemented in streaming fashion end-t
 - Scope is realtime trip updates in the current feed snapshot.
 - For each trip update, `operation_day_date` is `TripDescriptor.start_date` when present, otherwise current calendar date in `PROCESSOR_TIMEZONE`.
 - Only mutable realtime state is processed.
-- Closed trips and frozen past stop events are excluded from transformation.
+- Closed trips are excluded from transformation.
 
 ### Error handling and observability
 
 - Reject unresolved or invalid trip descriptors with structured diagnostics.
-- Report counters for: entities received, entities filtered, completed-trip skips, frozen stop-time skips, and successful upserts.
+- Report counters for: entities received, entities filtered, completed-trip skips, and successful upserts.
 - Log late/out-of-order updates when they lose latest-wins arbitration.

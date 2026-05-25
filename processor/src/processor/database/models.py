@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import ClassVar
 
-from sqlalchemy import Date, DateTime, Double, ForeignKeyConstraint, Index, PrimaryKeyConstraint, Text, text
+from sqlalchemy import Date, DateTime, Double, ForeignKeyConstraint, Index, Integer, PrimaryKeyConstraint, Text, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -96,7 +96,7 @@ class StopTimeFact(Base):
             "operation_day_date",
             "trip_id",
             "stop_id",
-            "distance_from_start",
+            "stop_sequence",
             name="pk_fact_stop_times",
         ),
         ForeignKeyConstraint(
@@ -126,6 +126,13 @@ class StopTimeFact(Base):
             "trip_id",
         ),
         Index(
+            "ix_fst_inst_opday_trip_seq",
+            "instance_id",
+            "operation_day_date",
+            "trip_id",
+            "stop_sequence",
+        ),
+        Index(
             "ix_fact_stop_times_instance_id_act_arrival_time",
             "instance_id",
             "act_arrival_time",
@@ -141,6 +148,7 @@ class StopTimeFact(Base):
     operation_day_date: Mapped[date] = mapped_column(Date, nullable=False)
     trip_id: Mapped[str] = mapped_column(Text, nullable=False)
     stop_id: Mapped[str] = mapped_column(Text, nullable=False)
+    stop_sequence: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     distance_from_start: Mapped[float] = mapped_column(Double, nullable=False)
     nom_arrival_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     nom_departure_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

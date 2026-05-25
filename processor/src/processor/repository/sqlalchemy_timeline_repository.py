@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
+from datetime import date
 from typing import Callable, TypeVar
 
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database.models import StopDimension, StopTimeFact, TripDimension
@@ -69,6 +71,19 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
         stop_times: list[StopTimeRecord],
     ) -> None:
         await asyncio.to_thread(self._upsert_realtime_stop_times_sync, instance_id, stop_times)
+
+    async def get_nominal_stop_times_for_trip(
+        self,
+        instance_id: str,
+        operation_day_date: date,
+        trip_id: str,
+    ) -> list[StopTimeRecord]:
+        return await asyncio.to_thread(
+            self._get_nominal_stop_times_for_trip_sync,
+            instance_id,
+            operation_day_date,
+            trip_id,
+        )
 
     def _upsert_nominal_stops_sync(self, instance_id: str, stops: list[StopRecord]) -> None:
         if not stops:
@@ -160,9 +175,11 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                             "operation_day_date",
                             "trip_id",
                             "stop_id",
-                            "distance_from_start",
+                            "stop_sequence",
                         ],
                         set_={
+                            "distance_from_start": insert_stmt.excluded.distance_from_start,
+                            "stop_sequence": insert_stmt.excluded.stop_sequence,
                             "nom_arrival_time": insert_stmt.excluded.nom_arrival_time,
                             "nom_departure_time": insert_stmt.excluded.nom_departure_time,
                             "act_arrival_time": insert_stmt.excluded.act_arrival_time,
@@ -217,7 +234,7 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                             "operation_day_date",
                             "trip_id",
                             "stop_id",
-                            "distance_from_start",
+                            "stop_sequence",
                         ],
                         set_={
                             "act_arrival_time": insert_stmt.excluded.act_arrival_time,
@@ -226,6 +243,43 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                         },
                     )
                     session.execute(upsert_stmt)
+
+    def _get_nominal_stop_times_for_trip_sync(
+        self,
+        instance_id: str,
+        operation_day_date: date,
+        trip_id: str,
+    ) -> list[StopTimeRecord]:
+        with self._session_factory() as session:
+            stmt = (
+                select(StopTimeFact)
+                .where(StopTimeFact.instance_id == instance_id)
+                .where(StopTimeFact.operation_day_date == operation_day_date)
+                .where(StopTimeFact.trip_id == trip_id)
+                .order_by(
+                    StopTimeFact.nom_departure_time,
+                    StopTimeFact.stop_sequence,
+                    StopTimeFact.distance_from_start,
+                    StopTimeFact.stop_id,
+                )
+            )
+            rows = list(session.execute(stmt).scalars())
+
+        return [
+            StopTimeRecord(
+                operation_day_date=row.operation_day_date,
+                trip_id=row.trip_id,
+                stop_id=row.stop_id,
+                distance_from_start=row.distance_from_start,
+                nom_arrival_time=row.nom_arrival_time,
+                nom_departure_time=row.nom_departure_time,
+                act_arrival_time=row.act_arrival_time,
+                act_departure_time=row.act_departure_time,
+                schedule_relationship=row.schedule_relationship,
+                stop_sequence=row.stop_sequence,
+            )
+            for row in rows
+        ]
 
     def _trip_values(self, instance_id: str, trip: TripRecord) -> dict[str, object]:
         return {
@@ -259,6 +313,7 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
             "operation_day_date": stop_time.operation_day_date,
             "trip_id": stop_time.trip_id,
             "stop_id": stop_time.stop_id,
+            "stop_sequence": stop_time.stop_sequence,
             "distance_from_start": stop_time.distance_from_start,
             "nom_arrival_time": stop_time.nom_arrival_time,
             "nom_departure_time": stop_time.nom_departure_time,

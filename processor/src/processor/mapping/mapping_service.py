@@ -104,6 +104,7 @@ class MappingService(MappingServiceInterface):
                 act_arrival_time=record.act_arrival_time,
                 act_departure_time=record.act_departure_time,
                 schedule_relationship=record.schedule_relationship,
+                stop_sequence=record.stop_sequence,
                 arrival_delay_seconds=record.arrival_delay_seconds,
                 departure_delay_seconds=record.departure_delay_seconds,
             )

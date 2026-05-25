@@ -50,13 +50,24 @@ class LoadingService:
         if not stop_times:
             return
 
-        normalized_stop_times = self._normalize_realtime_stop_times(stop_times)
+        nominal_stop_times = await self._repository.get_nominal_stop_times_for_trip(
+            instance_id=instance_id,
+            operation_day_date=trip.operation_day_date,
+            trip_id=trip.trip_id,
+        )
+
+        normalized_input = self._apply_nominal_baseline(stop_times=stop_times, nominal_stop_times=nominal_stop_times)
+        if not normalized_input:
+            return
+
+        normalized_stop_times = self._normalize_realtime_stop_times(normalized_input)
         if not normalized_stop_times:
             return
 
         normalized_trip = self._derive_realtime_trip_fields(
             source_trip=trip,
-            stop_times=normalized_stop_times,
+            nominal_stop_times=nominal_stop_times,
+            normalized_stop_times=normalized_stop_times,
         )
 
         # Matching strategy hooks belong here while DB writes remain in the repository.
@@ -66,10 +77,78 @@ class LoadingService:
             stop_times=normalized_stop_times,
         )
 
+    def _apply_nominal_baseline(
+        self,
+        stop_times: list[StopTimeRecord],
+        nominal_stop_times: list[StopTimeRecord],
+    ) -> list[StopTimeRecord]:
+        # When no nominal data exists at all, pass through as-is (A10: nominally unknown trips).
+        if not nominal_stop_times:
+            return stop_times
+
+        realtime_by_sequence: dict[int, StopTimeRecord] = {item.stop_sequence: item for item in stop_times}
+        ordered_nominal = sorted(nominal_stop_times, key=lambda s: s.stop_sequence)
+
+        merged: list[StopTimeRecord] = []
+        last_arrival_delay_s: int | None = None
+        last_departure_delay_s: int | None = None
+
+        for baseline in ordered_nominal:
+            record = realtime_by_sequence.get(baseline.stop_sequence)
+
+            if record is not None:
+                # Explicit realtime update: apply nominal baseline values.
+                merged.append(
+                    replace(
+                        record,
+                        nom_arrival_time=baseline.nom_arrival_time,
+                        nom_departure_time=baseline.nom_departure_time,
+                        distance_from_start=baseline.distance_from_start,
+                    )
+                )
+                # Update tracked delay for forward propagation to subsequent stops.
+                # Absolute time takes priority; delay_seconds is used as a fallback.
+                if record.act_arrival_time is not None:
+                    last_arrival_delay_s = round(
+                        (record.act_arrival_time - baseline.nom_arrival_time).total_seconds()
+                    )
+                elif record.arrival_delay_seconds is not None:
+                    last_arrival_delay_s = record.arrival_delay_seconds
+
+                if record.act_departure_time is not None:
+                    last_departure_delay_s = round(
+                        (record.act_departure_time - baseline.nom_departure_time).total_seconds()
+                    )
+                elif record.departure_delay_seconds is not None:
+                    last_departure_delay_s = record.departure_delay_seconds
+
+            elif last_arrival_delay_s is not None or last_departure_delay_s is not None:
+                # No explicit update for this stop, but a preceding update provides a
+                # propagation basis.  Synthesize a stop-time record by applying the
+                # tracked delay to the nominal baseline.  Schedule relationship is always
+                # SCHEDULED for propagated stops; an explicit update for the same stop
+                # in a later position in this feed would override this value.
+                merged.append(
+                    StopTimeRecord(
+                        operation_day_date=baseline.operation_day_date,
+                        trip_id=baseline.trip_id,
+                        stop_id=baseline.stop_id,
+                        distance_from_start=baseline.distance_from_start,
+                        nom_arrival_time=baseline.nom_arrival_time,
+                        nom_departure_time=baseline.nom_departure_time,
+                        act_arrival_time=None,
+                        act_departure_time=None,
+                        schedule_relationship="SCHEDULED",
+                        stop_sequence=baseline.stop_sequence,
+                        arrival_delay_seconds=last_arrival_delay_s,
+                        departure_delay_seconds=last_departure_delay_s,
+                    )
+                )
+
+        return merged
+
     def _normalize_realtime_stop_times(self, stop_times: list[StopTimeRecord]) -> list[StopTimeRecord]:
-        ordered = sorted(stop_times, key=lambda item: item.distance_from_start)
-        timezone = ordered[0].nom_departure_time.tzinfo
-        now = datetime.now(timezone)
+        ordered = sorted(stop_times, key=_stop_time_order_key)
 
         normalized: list[StopTimeRecord] = []
         for record in ordered:
@@ -84,10 +163,11 @@ class LoadingService:
                 delay_seconds=record.departure_delay_seconds,
             )
 
-            reference_arrival = resolved_act_arrival or record.nom_arrival_time
-            reference_departure = resolved_act_departure or record.nom_departure_time
-            if reference_arrival < now and reference_departure < now:
-                continue
+            # Keep arrival/departure paired for one stop when only one realtime side exists.
+            if resolved_act_arrival is None and resolved_act_departure is not None:
+                resolved_act_arrival = resolved_act_departure
+            if resolved_act_departure is None and resolved_act_arrival is not None:
+                resolved_act_departure = resolved_act_arrival
 
             normalized.append(
                 replace(
@@ -102,18 +182,36 @@ class LoadingService:
     def _derive_realtime_trip_fields(
         self,
         source_trip: TripRecord,
-        stop_times: list[StopTimeRecord],
+        nominal_stop_times: list[StopTimeRecord],
+        normalized_stop_times: list[StopTimeRecord],
     ) -> TripRecord:
-        ordered = sorted(stop_times, key=lambda item: item.distance_from_start)
-        first_stop = ordered[0]
-        last_stop = ordered[-1]
+        ordered_nominal = (
+            sorted(nominal_stop_times, key=_stop_time_order_key)
+            if nominal_stop_times
+            else sorted(normalized_stop_times, key=lambda item: (item.stop_sequence, item.distance_from_start, item.stop_id))
+        )
+
+        first_stop = ordered_nominal[0]
+        last_stop = ordered_nominal[-1]
+
+        realtime_by_sequence = {item.stop_sequence: item for item in normalized_stop_times}
+        realtime_first = realtime_by_sequence.get(first_stop.stop_sequence)
+        realtime_last = realtime_by_sequence.get(last_stop.stop_sequence)
 
         nom_start_time = first_stop.nom_departure_time
-        nom_end_time = last_stop.nom_arrival_time
+        nom_end_time = last_stop.nom_departure_time
 
-        act_start_time = first_stop.act_departure_time or first_stop.act_arrival_time or nom_start_time
+        act_start_time = (
+            realtime_first.act_departure_time
+            if realtime_first is not None and realtime_first.act_departure_time is not None
+            else nom_start_time
+        )
 
-        end_candidate = last_stop.act_arrival_time or last_stop.act_departure_time or nom_end_time
+        end_candidate = (
+            realtime_last.act_departure_time
+            if realtime_last is not None and realtime_last.act_departure_time is not None
+            else nom_end_time
+        )
         now = datetime.now(nom_end_time.tzinfo)
         act_end_time = end_candidate if end_candidate <= now else None
 
@@ -125,8 +223,8 @@ class LoadingService:
             act_end_time=act_end_time,
             nom_start_stop_id=first_stop.stop_id,
             nom_end_stop_id=last_stop.stop_id,
-            nom_total_distance=max(item.distance_from_start for item in ordered),
-            act_total_distance=max(item.distance_from_start for item in ordered),
+            nom_total_distance=max(item.distance_from_start for item in ordered_nominal),
+            act_total_distance=max(item.distance_from_start for item in normalized_stop_times),
         )
 
 
@@ -142,3 +240,12 @@ def _resolve_realtime_timestamp(
         return nominal_timestamp + timedelta(seconds=delay_seconds)
 
     return None
+
+
+def _stop_time_order_key(record: StopTimeRecord) -> tuple[int, datetime, float, str]:
+    return (
+        record.stop_sequence,
+        record.nom_departure_time,
+        record.distance_from_start,
+        record.stop_id,
+    )

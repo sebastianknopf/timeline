@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Protocol
 
 from ..loading.models import StopRecord, StopTimeRecord, TripRecord
@@ -55,3 +56,11 @@ class TimelineRepositoryInterface(Protocol):
         stop_times: list[StopTimeRecord],
     ) -> None:
         """Upsert stop time rows when realtime information arrives."""
+
+    async def get_nominal_stop_times_for_trip(
+        self,
+        instance_id: str,
+        operation_day_date: date,
+        trip_id: str,
+    ) -> list[StopTimeRecord]:
+        """Read nominal stop-time baseline for one trip and operation day."""

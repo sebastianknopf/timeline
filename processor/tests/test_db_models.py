@@ -104,6 +104,7 @@ class DatabaseModelsTests(unittest.TestCase):
             "operation_day_date": ("DATE", False),
             "trip_id": ("TEXT", False),
             "stop_id": ("TEXT", False),
+            "stop_sequence": ("INTEGER", False),
             "distance_from_start": ("DOUBLE PRECISION", False),
             "nom_arrival_time": ("TIMESTAMP WITH TIME ZONE", False),
             "nom_departure_time": ("TIMESTAMP WITH TIME ZONE", False),
@@ -123,7 +124,7 @@ class DatabaseModelsTests(unittest.TestCase):
                 "operation_day_date",
                 "trip_id",
                 "stop_id",
-                "distance_from_start",
+                "stop_sequence",
             ],
             list(table.primary_key.columns.keys()),
         )
@@ -132,6 +133,7 @@ class DatabaseModelsTests(unittest.TestCase):
             {
                 ("instance_id", "operation_day_date", "stop_id"),
                 ("instance_id", "operation_day_date", "trip_id"),
+                ("instance_id", "operation_day_date", "trip_id", "stop_sequence"),
                 ("instance_id", "act_arrival_time"),
                 ("instance_id", "act_departure_time"),
             },

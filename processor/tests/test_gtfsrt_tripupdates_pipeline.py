@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 import tempfile
 import unittest
@@ -24,6 +24,7 @@ class RecordingRepository:
     def __init__(self) -> None:
         self.realtime_trips: list[TripRecord] = []
         self.realtime_stop_times: list[StopTimeRecord] = []
+        self.nominal_stop_times: list[StopTimeRecord] = []
 
     async def upsert_nominal_stops(self, instance_id: str, stops: list[object]) -> None:
         return None
@@ -54,6 +55,18 @@ class RecordingRepository:
         stop_times: list[StopTimeRecord],
     ) -> None:
         self.realtime_stop_times.extend(stop_times)
+
+    async def get_nominal_stop_times_for_trip(
+        self,
+        instance_id: str,
+        operation_day_date: date,
+        trip_id: str,
+    ) -> list[StopTimeRecord]:
+        return [
+            item
+            for item in self.nominal_stop_times
+            if item.operation_day_date == operation_day_date and item.trip_id == trip_id
+        ]
 
 
 class InMemoryGtfsRtTripUpdatesPipeline(GtfsRtTripUpdatesPipeline):
@@ -118,6 +131,30 @@ class GtfsRtTripUpdatesPipelineTests(unittest.IsolatedAsyncioTestCase):
             mapping_service = MappingService()
             mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
             repository = RecordingRepository()
+            repository.nominal_stop_times = [
+                StopTimeRecord(
+                    operation_day_date=datetime.strptime("20260525", "%Y%m%d").date(),
+                    trip_id="T-1",
+                    stop_id="STOP-A",
+                    distance_from_start=0.0,
+                    nom_arrival_time=now + timedelta(minutes=2),
+                    nom_departure_time=now + timedelta(minutes=3),
+                    act_arrival_time=None,
+                    act_departure_time=None,
+                    stop_sequence=1,
+                ),
+                StopTimeRecord(
+                    operation_day_date=datetime.strptime("20260525", "%Y%m%d").date(),
+                    trip_id="T-1",
+                    stop_id="STOP-B",
+                    distance_from_start=5.0,
+                    nom_arrival_time=now + timedelta(minutes=6),
+                    nom_departure_time=now + timedelta(minutes=7),
+                    act_arrival_time=None,
+                    act_departure_time=None,
+                    stop_sequence=2,
+                ),
+            ]
             loading_service = LoadingService(repository=repository)
 
             gtfsrt_pipeline = InMemoryGtfsRtTripUpdatesPipeline(
@@ -136,12 +173,12 @@ class GtfsRtTripUpdatesPipelineTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual("STOP-A", loaded_trip.nom_start_stop_id)
             self.assertEqual("STOP-B", loaded_trip.nom_end_stop_id)
             self.assertEqual("T-1", loaded_trip.trip_id)
-            self.assertEqual(2.0, loaded_trip.act_total_distance)
+            self.assertEqual(5.0, loaded_trip.act_total_distance)
 
             loaded_stop_ids = {item.stop_id for item in repository.realtime_stop_times}
             self.assertEqual({"STOP-A", "STOP-B"}, loaded_stop_ids)
 
-    async def test_pipeline_skips_past_only_stop_updates(self) -> None:
+    async def test_pipeline_processes_past_only_stop_updates(self) -> None:
         pipeline = PipelineConfig(
             id="realtime-main",
             name="gtfsrt-tripupdates",
@@ -179,8 +216,9 @@ class GtfsRtTripUpdatesPipelineTests(unittest.IsolatedAsyncioTestCase):
 
         await gtfsrt_pipeline.execute(instance=instance, pipeline=pipeline)
 
-        self.assertEqual([], repository.realtime_trips)
-        self.assertEqual([], repository.realtime_stop_times)
+        self.assertEqual(1, len(repository.realtime_trips))
+        self.assertEqual(1, len(repository.realtime_stop_times))
+        self.assertEqual("T-PAST", repository.realtime_trips[0].trip_id)
 
     async def test_pipeline_converts_event_times_to_processor_timezone(self) -> None:
         pipeline = PipelineConfig(
@@ -339,6 +377,286 @@ class GtfsRtTripUpdatesPipelineTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(first_departure.replace(microsecond=0), trip.act_start_time)
         self.assertIsNone(trip.act_end_time)
+
+
+    async def test_delay_propagates_forward_between_explicit_updates(self) -> None:
+        """Delay from S1 (on-time) propagates to S2; delay from S3 (+300s) propagates to S4."""
+        pipeline = PipelineConfig(
+            id="realtime-main",
+            name="gtfsrt-tripupdates",
+            type="realtime",
+            cron="*/1 * * * *",
+            endpoint="https://example.test/realtime",
+        )
+        instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+        now = datetime.now(UTC)
+        op_day = date(2026, 5, 25)
+        nom_base = datetime(2026, 5, 25, 8, 0, 0, tzinfo=UTC)
+
+        nom_s1_arr = nom_base + timedelta(minutes=10)
+        nom_s1_dep = nom_base + timedelta(minutes=11)
+        nom_s2_arr = nom_base + timedelta(minutes=20)
+        nom_s2_dep = nom_base + timedelta(minutes=21)
+        nom_s3_arr = nom_base + timedelta(minutes=30)
+        nom_s3_dep = nom_base + timedelta(minutes=31)
+        nom_s4_arr = nom_base + timedelta(minutes=40)
+        nom_s4_dep = nom_base + timedelta(minutes=41)
+
+        # GTFS-RT only delivers S1 (on time, delay=0) and S3 (+300 s late).
+        payload = _build_feed_payload(
+            trip_id="T-PROP",
+            route_id="R-PROP",
+            start_date="20260525",
+            stop_updates=(
+                _StopUpdateInput(stop_id="S1", stop_sequence=1, arrival_delay_seconds=0, departure_delay_seconds=0),
+                _StopUpdateInput(stop_id="S3", stop_sequence=3, arrival_delay_seconds=300, departure_delay_seconds=300),
+            ),
+        )
+
+        mapping_service = MappingService()
+        mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+        repository = RecordingRepository()
+        repository.nominal_stop_times = [
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-PROP", stop_id="S1", distance_from_start=0.0,
+                           nom_arrival_time=nom_s1_arr, nom_departure_time=nom_s1_dep,
+                           act_arrival_time=None, act_departure_time=None, stop_sequence=1),
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-PROP", stop_id="S2", distance_from_start=2.0,
+                           nom_arrival_time=nom_s2_arr, nom_departure_time=nom_s2_dep,
+                           act_arrival_time=None, act_departure_time=None, stop_sequence=2),
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-PROP", stop_id="S3", distance_from_start=4.0,
+                           nom_arrival_time=nom_s3_arr, nom_departure_time=nom_s3_dep,
+                           act_arrival_time=None, act_departure_time=None, stop_sequence=3),
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-PROP", stop_id="S4", distance_from_start=6.0,
+                           nom_arrival_time=nom_s4_arr, nom_departure_time=nom_s4_dep,
+                           act_arrival_time=None, act_departure_time=None, stop_sequence=4),
+        ]
+        loading_service = LoadingService(repository=repository)
+        pipeline_instance = InMemoryGtfsRtTripUpdatesPipeline(
+            payload=payload, loading_service=loading_service, mapping_service=mapping_service,
+            processor_timezone_name="UTC",
+        )
+
+        await pipeline_instance.execute(instance=instance, pipeline=pipeline)
+
+        self.assertEqual(4, len(repository.realtime_stop_times))
+
+        by_seq = {s.stop_sequence: s for s in repository.realtime_stop_times}
+
+        # S1 explicit on-time: act = nom (delay = 0)
+        self.assertEqual(nom_s1_arr, by_seq[1].act_arrival_time)
+        self.assertEqual(nom_s1_dep, by_seq[1].act_departure_time)
+
+        # S2 propagated from S1 (delay = 0): act = nom, schedule_relationship = SCHEDULED
+        self.assertEqual(nom_s2_arr, by_seq[2].act_arrival_time)
+        self.assertEqual(nom_s2_dep, by_seq[2].act_departure_time)
+        self.assertEqual("SCHEDULED", by_seq[2].schedule_relationship)
+
+        # S3 explicit +300 s late
+        self.assertEqual(nom_s3_arr + timedelta(seconds=300), by_seq[3].act_arrival_time)
+        self.assertEqual(nom_s3_dep + timedelta(seconds=300), by_seq[3].act_departure_time)
+
+        # S4 propagated from S3 (delay = +300 s): schedule_relationship = SCHEDULED
+        self.assertEqual(nom_s4_arr + timedelta(seconds=300), by_seq[4].act_arrival_time)
+        self.assertEqual(nom_s4_dep + timedelta(seconds=300), by_seq[4].act_departure_time)
+        self.assertEqual("SCHEDULED", by_seq[4].schedule_relationship)
+
+    async def test_on_time_first_stop_propagates_to_all_subsequent_stops(self) -> None:
+        """If only the first stop is delivered on-time (delay=0), all other stops are expanded on-time with SCHEDULED."""
+        pipeline = PipelineConfig(
+            id="realtime-main",
+            name="gtfsrt-tripupdates",
+            type="realtime",
+            cron="*/1 * * * *",
+            endpoint="https://example.test/realtime",
+        )
+        instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+        op_day = date(2026, 5, 25)
+        nom_base = datetime(2026, 5, 25, 9, 0, 0, tzinfo=UTC)
+
+        nom_s1_arr = nom_base + timedelta(minutes=5)
+        nom_s1_dep = nom_base + timedelta(minutes=6)
+        nom_s2_arr = nom_base + timedelta(minutes=15)
+        nom_s2_dep = nom_base + timedelta(minutes=16)
+        nom_s3_arr = nom_base + timedelta(minutes=25)
+        nom_s3_dep = nom_base + timedelta(minutes=26)
+
+        # Only S1 delivered on time (delay = 0 on both sides).
+        payload = _build_feed_payload(
+            trip_id="T-ONTIME",
+            route_id="R-ONTIME",
+            start_date="20260525",
+            stop_updates=(
+                _StopUpdateInput(stop_id="S1", stop_sequence=1, arrival_delay_seconds=0, departure_delay_seconds=0),
+            ),
+        )
+
+        mapping_service = MappingService()
+        mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+        repository = RecordingRepository()
+        repository.nominal_stop_times = [
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-ONTIME", stop_id="S1", distance_from_start=0.0,
+                           nom_arrival_time=nom_s1_arr, nom_departure_time=nom_s1_dep,
+                           act_arrival_time=None, act_departure_time=None, stop_sequence=1),
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-ONTIME", stop_id="S2", distance_from_start=3.0,
+                           nom_arrival_time=nom_s2_arr, nom_departure_time=nom_s2_dep,
+                           act_arrival_time=None, act_departure_time=None, stop_sequence=2),
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-ONTIME", stop_id="S3", distance_from_start=6.0,
+                           nom_arrival_time=nom_s3_arr, nom_departure_time=nom_s3_dep,
+                           act_arrival_time=None, act_departure_time=None, stop_sequence=3),
+        ]
+        loading_service = LoadingService(repository=repository)
+        pipeline_instance = InMemoryGtfsRtTripUpdatesPipeline(
+            payload=payload, loading_service=loading_service, mapping_service=mapping_service,
+            processor_timezone_name="UTC",
+        )
+
+        await pipeline_instance.execute(instance=instance, pipeline=pipeline)
+
+        # All three stops must be written because S2 and S3 are propagated from S1.
+        self.assertEqual(3, len(repository.realtime_stop_times))
+
+        by_seq = {s.stop_sequence: s for s in repository.realtime_stop_times}
+
+        # S1 explicit on-time.
+        self.assertEqual(nom_s1_arr, by_seq[1].act_arrival_time)
+        self.assertEqual(nom_s1_dep, by_seq[1].act_departure_time)
+
+        # S2 propagated: act = nom (delay = 0), SCHEDULED.
+        self.assertEqual(nom_s2_arr, by_seq[2].act_arrival_time)
+        self.assertEqual(nom_s2_dep, by_seq[2].act_departure_time)
+        self.assertEqual("SCHEDULED", by_seq[2].schedule_relationship)
+
+        # S3 propagated: act = nom (delay = 0), SCHEDULED.
+        self.assertEqual(nom_s3_arr, by_seq[3].act_arrival_time)
+        self.assertEqual(nom_s3_dep, by_seq[3].act_departure_time)
+        self.assertEqual("SCHEDULED", by_seq[3].schedule_relationship)
+
+    async def test_negative_delay_propagates_forward(self) -> None:
+        """Early arrival (negative delay) is propagated to all subsequent stops without explicit updates."""
+        pipeline = PipelineConfig(
+            id="realtime-main",
+            name="gtfsrt-tripupdates",
+            type="realtime",
+            cron="*/1 * * * *",
+            endpoint="https://example.test/realtime",
+        )
+        instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+        op_day = date(2026, 5, 25)
+        nom_base = datetime(2026, 5, 25, 10, 0, 0, tzinfo=UTC)
+
+        nom_s1_arr = nom_base + timedelta(minutes=10)
+        nom_s1_dep = nom_base + timedelta(minutes=11)
+        nom_s2_arr = nom_base + timedelta(minutes=20)
+        nom_s2_dep = nom_base + timedelta(minutes=21)
+
+        # S1 is 2 minutes early (delay = -120 s).
+        payload = _build_feed_payload(
+            trip_id="T-EARLY",
+            route_id="R-EARLY",
+            start_date="20260525",
+            stop_updates=(
+                _StopUpdateInput(stop_id="S1", stop_sequence=1, arrival_delay_seconds=-120, departure_delay_seconds=-120),
+            ),
+        )
+
+        mapping_service = MappingService()
+        mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+        repository = RecordingRepository()
+        repository.nominal_stop_times = [
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-EARLY", stop_id="S1", distance_from_start=0.0,
+                           nom_arrival_time=nom_s1_arr, nom_departure_time=nom_s1_dep,
+                           act_arrival_time=None, act_departure_time=None, stop_sequence=1),
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-EARLY", stop_id="S2", distance_from_start=5.0,
+                           nom_arrival_time=nom_s2_arr, nom_departure_time=nom_s2_dep,
+                           act_arrival_time=None, act_departure_time=None, stop_sequence=2),
+        ]
+        loading_service = LoadingService(repository=repository)
+        pipeline_instance = InMemoryGtfsRtTripUpdatesPipeline(
+            payload=payload, loading_service=loading_service, mapping_service=mapping_service,
+            processor_timezone_name="UTC",
+        )
+
+        await pipeline_instance.execute(instance=instance, pipeline=pipeline)
+
+        self.assertEqual(2, len(repository.realtime_stop_times))
+        by_seq = {s.stop_sequence: s for s in repository.realtime_stop_times}
+
+        # S1: 2 min early.
+        self.assertEqual(nom_s1_arr - timedelta(seconds=120), by_seq[1].act_arrival_time)
+
+        # S2 propagated: also 2 min early, SCHEDULED.
+        self.assertEqual(nom_s2_arr - timedelta(seconds=120), by_seq[2].act_arrival_time)
+        self.assertEqual(nom_s2_dep - timedelta(seconds=120), by_seq[2].act_departure_time)
+        self.assertEqual("SCHEDULED", by_seq[2].schedule_relationship)
+
+    async def test_stops_before_first_explicit_update_are_not_propagated(self) -> None:
+        """Stops that come before the first explicit update receive no propagated delay."""
+        pipeline = PipelineConfig(
+            id="realtime-main",
+            name="gtfsrt-tripupdates",
+            type="realtime",
+            cron="*/1 * * * *",
+            endpoint="https://example.test/realtime",
+        )
+        instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+        op_day = date(2026, 5, 25)
+        nom_base = datetime(2026, 5, 25, 11, 0, 0, tzinfo=UTC)
+
+        nom_s1_arr = nom_base + timedelta(minutes=5)
+        nom_s1_dep = nom_base + timedelta(minutes=6)
+        nom_s2_arr = nom_base + timedelta(minutes=15)
+        nom_s2_dep = nom_base + timedelta(minutes=16)
+        nom_s3_arr = nom_base + timedelta(minutes=25)
+        nom_s3_dep = nom_base + timedelta(minutes=26)
+
+        # Only S2 is delivered (delay = +180 s); S1 has no update, S3 has no update.
+        payload = _build_feed_payload(
+            trip_id="T-MID",
+            route_id="R-MID",
+            start_date="20260525",
+            stop_updates=(
+                _StopUpdateInput(stop_id="S2", stop_sequence=2, arrival_delay_seconds=180, departure_delay_seconds=180),
+            ),
+        )
+
+        mapping_service = MappingService()
+        mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+        repository = RecordingRepository()
+        repository.nominal_stop_times = [
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-MID", stop_id="S1", distance_from_start=0.0,
+                           nom_arrival_time=nom_s1_arr, nom_departure_time=nom_s1_dep,
+                           act_arrival_time=None, act_departure_time=None, stop_sequence=1),
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-MID", stop_id="S2", distance_from_start=3.0,
+                           nom_arrival_time=nom_s2_arr, nom_departure_time=nom_s2_dep,
+                           act_arrival_time=None, act_departure_time=None, stop_sequence=2),
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-MID", stop_id="S3", distance_from_start=6.0,
+                           nom_arrival_time=nom_s3_arr, nom_departure_time=nom_s3_dep,
+                           act_arrival_time=None, act_departure_time=None, stop_sequence=3),
+        ]
+        loading_service = LoadingService(repository=repository)
+        pipeline_instance = InMemoryGtfsRtTripUpdatesPipeline(
+            payload=payload, loading_service=loading_service, mapping_service=mapping_service,
+            processor_timezone_name="UTC",
+        )
+
+        await pipeline_instance.execute(instance=instance, pipeline=pipeline)
+
+        # Only S2 (explicit) and S3 (propagated from S2) should be written.
+        # S1 has no preceding explicit update and therefore receives no propagated data.
+        self.assertEqual(2, len(repository.realtime_stop_times))
+        stop_seqs = {s.stop_sequence for s in repository.realtime_stop_times}
+        self.assertIn(2, stop_seqs)
+        self.assertIn(3, stop_seqs)
+        self.assertNotIn(1, stop_seqs)
+
+        by_seq = {s.stop_sequence: s for s in repository.realtime_stop_times}
+        self.assertEqual(nom_s2_arr + timedelta(seconds=180), by_seq[2].act_arrival_time)
+        self.assertEqual(nom_s3_arr + timedelta(seconds=180), by_seq[3].act_arrival_time)
+        self.assertEqual("SCHEDULED", by_seq[3].schedule_relationship)
 
 
 class _StopUpdateInput:

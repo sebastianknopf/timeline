@@ -146,6 +146,12 @@ class GtfsNominalPipeline:
             LOGGER.info("gtfs_no_valid_trip_payload", instance_id=instance.id, pipeline_id=pipeline.id)
             return
 
+        unique_mapped_stops = _ensure_required_stops_present(
+            stops=unique_mapped_stops,
+            trips=trip_records,
+            stop_times=stop_time_records,
+        )
+
         for stops_chunk in _chunked(unique_mapped_stops, 5000):
             await self._loading_service.load_nominal_stops_batch(instance_id=instance.id, stops=stops_chunk)
 
@@ -383,8 +389,9 @@ class GtfsNominalPipeline:
         rows: list[_StopTimeRow],
     ) -> list[StopTimeRecord]:
         transformed: list[StopTimeRecord] = []
+        distance_km_by_sequence = _normalize_shape_distance_values_km(rows)
 
-        for index, row in enumerate(rows):
+        for row in rows:
             arrival = _parse_gtfs_time(
                 raw_value=row.arrival_time_raw,
                 operation_day=operation_day,
@@ -412,7 +419,7 @@ class GtfsNominalPipeline:
             if departure is None:
                 departure = arrival
 
-            distance = _parse_float(row.shape_dist_traveled_raw, default=float(index))
+            distance = distance_km_by_sequence.get(row.stop_sequence, 0.0)
             transformed.append(
                 StopTimeRecord(
                     operation_day_date=operation_day,
@@ -424,6 +431,7 @@ class GtfsNominalPipeline:
                     act_arrival_time=None,
                     act_departure_time=None,
                     schedule_relationship="UNKNOWN",
+                    stop_sequence=row.stop_sequence,
                 )
             )
 
@@ -605,6 +613,42 @@ def _deduplicate_stop_records(stops: list[StopRecord]) -> list[StopRecord]:
     return list(by_id.values())
 
 
+def _ensure_required_stops_present(
+    stops: list[StopRecord],
+    trips: list[TripRecord],
+    stop_times: list[StopTimeRecord],
+) -> list[StopRecord]:
+    by_id: dict[str, StopRecord] = {stop.stop_id: stop for stop in stops}
+    referenced_stop_ids: set[str] = set()
+
+    for trip in trips:
+        referenced_stop_ids.add(trip.nom_start_stop_id)
+        referenced_stop_ids.add(trip.nom_end_stop_id)
+
+    for stop_time in stop_times:
+        referenced_stop_ids.add(stop_time.stop_id)
+
+    missing_stop_ids = sorted(stop_id for stop_id in referenced_stop_ids if stop_id and stop_id not in by_id)
+    if not missing_stop_ids:
+        return list(by_id.values())
+
+    LOGGER.warning(
+        "gtfs_missing_stop_dimension_rows_created",
+        missing_count=len(missing_stop_ids),
+        sample_stop_ids=missing_stop_ids[:20],
+    )
+
+    for stop_id in missing_stop_ids:
+        by_id[stop_id] = StopRecord(
+            stop_id=stop_id,
+            stop_name=stop_id,
+            stop_lat=0.0,
+            stop_lon=0.0,
+        )
+
+    return list(by_id.values())
+
+
 def _parameter_as_str(parameters: dict[str, object], key: str, default: str) -> str:
     raw = parameters.get(key)
     if raw is None:
@@ -618,6 +662,46 @@ def _parse_int(raw_value: str) -> int | None:
         return int(raw_value)
     except ValueError:
         return None
+
+
+def _normalize_shape_distance_values_km(rows: list[_StopTimeRow]) -> dict[int, float]:
+    parsed_by_sequence: dict[int, float | None] = {}
+    positive_values: list[float] = []
+
+    for row in rows:
+        parsed = _parse_float(row.shape_dist_traveled_raw, default=None)
+        if parsed is None or parsed < 0:
+            parsed_by_sequence[row.stop_sequence] = None
+            continue
+
+        parsed_by_sequence[row.stop_sequence] = parsed
+        if parsed > 0:
+            positive_values.append(parsed)
+
+    # Heuristic: very large values are typically meters in GTFS, small values are usually kilometers.
+    is_meter_scale = bool(positive_values) and max(positive_values) > 200.0
+
+    normalized: dict[int, float] = {}
+    for row in rows:
+        raw_value = parsed_by_sequence.get(row.stop_sequence)
+        if raw_value is None:
+            normalized[row.stop_sequence] = 0.0
+            continue
+
+        distance_km = raw_value / 1000.0 if is_meter_scale else raw_value
+        if distance_km < 0 or distance_km > 1000:
+            LOGGER.warning(
+                "gtfs_shape_distance_unplausible",
+                stop_sequence=row.stop_sequence,
+                raw_value=raw_value,
+                normalized_km=distance_km,
+            )
+            normalized[row.stop_sequence] = 0.0
+            continue
+
+        normalized[row.stop_sequence] = distance_km
+
+    return normalized
 
 
 def _parse_float(raw_value: str, default: float) -> float:

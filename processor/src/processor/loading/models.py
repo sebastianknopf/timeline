@@ -44,5 +44,6 @@ class StopTimeRecord:
     act_arrival_time: datetime | None
     act_departure_time: datetime | None
     schedule_relationship: str = "UNKNOWN"
+    stop_sequence: int = 0
     arrival_delay_seconds: int | None = None
     departure_delay_seconds: int | None = None

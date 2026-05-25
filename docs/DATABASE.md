@@ -20,6 +20,7 @@ These type rules are applied consistently:
 - date fields: `date`
 - time fields: `timestamptz`
 - distance fields: `double precision`
+- sequence fields: `integer`
 - all remaining fields: `text`
 
 Stop coordinates are also stored as `double precision`:
@@ -104,6 +105,7 @@ Foreign keys:
 | `operation_day_date` | `date` | no | Operation day |
 | `trip_id` | `text` | no | Trip identifier |
 | `stop_id` | `text` | no | Stop identifier |
+| `stop_sequence` | `integer` | no | Stop order within one trip/day (from GTFS `stop_sequence`) |
 | `distance_from_start` | `double precision` | no | Distance from trip origin |
 | `nom_arrival_time` | `timestamptz` | no | Planned arrival timestamp |
 | `nom_departure_time` | `timestamptz` | no | Planned departure timestamp |
@@ -113,7 +115,7 @@ Foreign keys:
 
 Primary key:
 
-- (`instance_id`, `operation_day_date`, `trip_id`, `stop_id`, `distance_from_start`)
+- (`instance_id`, `operation_day_date`, `trip_id`, `stop_id`, `stop_sequence`)
 
 Foreign keys:
 
@@ -122,7 +124,7 @@ Foreign keys:
 
 Design note:
 
-- The fact table key above assumes `distance_from_start` disambiguates repeated stops on one trip for one operation day. If repeated stops can share the same distance, add an explicit sequence field in a later schema revision.
+- `stop_sequence` is the authoritative identifier for a stop position within one trip/day. Using `stop_sequence` in the primary key — rather than `distance_from_start` — ensures that upserts correctly update an existing row when distances change (for example when a new GTFS static feed provides or corrects `shape_dist_traveled` values). `distance_from_start` remains a regular column so its value can be updated on every pipeline run.
 
 ## Model Relationships
 
@@ -146,7 +148,7 @@ The following indexes should be created to keep joins and instance-scoped filter
 
 - `dim_stops`: pk (`instance_id`, `stop_id`)
 - `dim_trips`: pk (`instance_id`, `operation_day_date`, `trip_id`)
-- `fact_stop_times`: pk (`instance_id`, `operation_day_date`, `trip_id`, `stop_id`, `distance_from_start`)
+- `fact_stop_times`: pk (`instance_id`, `operation_day_date`, `trip_id`, `stop_id`, `stop_sequence`)
 
 ### Additional recommended indexes
 
@@ -164,6 +166,7 @@ The following indexes should be created to keep joins and instance-scoped filter
 
 - idx for stop-centric lookups per instance/day: (`instance_id`, `operation_day_date`, `stop_id`)
 - idx for trip timelines per instance/day: (`instance_id`, `operation_day_date`, `trip_id`)
+- idx for ordered trip stop-time resolution per instance/day: (`instance_id`, `operation_day_date`, `trip_id`, `stop_sequence`)
 - idx for actual-time range queries: (`instance_id`, `act_arrival_time`)
 - idx for actual-departure range queries: (`instance_id`, `act_departure_time`)
 

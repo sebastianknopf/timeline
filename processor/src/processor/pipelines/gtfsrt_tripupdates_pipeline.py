@@ -25,6 +25,7 @@ class GtfsRealtimePipelineError(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class _StopUpdate:
     stop_id: str
+    stop_sequence: int
     distance_from_start: float
     actual_arrival_time: datetime | None
     actual_departure_time: datetime | None
@@ -105,6 +106,7 @@ class GtfsRtTripUpdatesPipeline:
                 operation_day=operation_day,
                 trip_id=trip_id,
                 stop_updates=stop_updates,
+                placeholder_nominal_time=now_processor_tz,
             )
             trip_record = self._build_trip_record(
                 operation_day=operation_day,
@@ -172,6 +174,8 @@ class GtfsRtTripUpdatesPipeline:
             if not stop_id:
                 continue
 
+            stop_sequence = update.stop_sequence if update.HasField("stop_sequence") else index + 1
+
             arrival_time = (
                 _resolve_event_time(
                     event=update.arrival,
@@ -194,7 +198,10 @@ class GtfsRtTripUpdatesPipeline:
                 if update.HasField("departure")
                 else None
             )
-            if arrival_time is None and departure_time is None:
+            has_arrival_delay = update.HasField("arrival") and update.arrival.HasField("delay")
+            has_departure_delay = update.HasField("departure") and update.departure.HasField("delay")
+
+            if arrival_time is None and departure_time is None and not has_arrival_delay and not has_departure_delay:
                 continue
 
             schedule_relationship = (
@@ -207,13 +214,12 @@ class GtfsRtTripUpdatesPipeline:
                 else default_schedule_relationship
             )
 
-            distance_from_start = float(index)
-            if update.HasField("stop_sequence"):
-                distance_from_start = float(update.stop_sequence)
+            distance_from_start = 0.0
 
             results.append(
                 _StopUpdate(
                     stop_id=stop_id,
+                    stop_sequence=stop_sequence,
                     distance_from_start=distance_from_start,
                     actual_arrival_time=arrival_time,
                     actual_departure_time=departure_time,
@@ -268,13 +274,16 @@ class GtfsRtTripUpdatesPipeline:
         operation_day: date,
         trip_id: str,
         stop_updates: list[_StopUpdate],
+        placeholder_nominal_time: datetime,
     ) -> list[StopTimeRecord]:
         records: list[StopTimeRecord] = []
         for update in stop_updates:
-            nom_arrival_time = update.actual_arrival_time or update.actual_departure_time
-            nom_departure_time = update.actual_departure_time or update.actual_arrival_time
-            if nom_arrival_time is None or nom_departure_time is None:
-                continue
+            # Use event timestamps as nominal placeholders so delay-based computations are
+            # anchored to actual event times rather than the current wall-clock time.
+            # LoadingService._apply_nominal_baseline replaces these with the real scheduled
+            # times from the nominal baseline before any DB write (when nominal is loaded).
+            nom_arrival_time = update.actual_arrival_time or update.actual_departure_time or placeholder_nominal_time
+            nom_departure_time = update.actual_departure_time or update.actual_arrival_time or placeholder_nominal_time
 
             records.append(
                 StopTimeRecord(
@@ -287,6 +296,7 @@ class GtfsRtTripUpdatesPipeline:
                     act_arrival_time=update.actual_arrival_time,
                     act_departure_time=update.actual_departure_time,
                     schedule_relationship=update.schedule_relationship,
+                    stop_sequence=update.stop_sequence,
                     arrival_delay_seconds=update.arrival_delay_seconds,
                     departure_delay_seconds=update.departure_delay_seconds,
                 )
