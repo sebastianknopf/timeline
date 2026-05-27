@@ -1,0 +1,343 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 4,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timeline-postgres"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisSoftMax": 101,
+            "axisSoftMin": 0,
+            "fillOpacity": 80,
+            "gradientMode": "hue",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "fieldMinMax": false,
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "UNKNOWN"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#a6b0ba",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SCHEDULED"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CANCELLED"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ADDED"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.85,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "auto",
+        "showValue": "auto",
+        "stacking": "normal",
+        "text": {
+          "valueSize": 12
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "asc"
+        },
+        "xField": "Linie",
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timeline-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  route_name AS \"Linie\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship = 'SCHEDULED'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"SCHEDULED\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship = 'CANCELLED'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"CANCELLED\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship = 'ADDED'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"ADDED\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship = 'UNKNOWN'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"UNKNOWN\"\r\nFROM\r\n  dim_trips\r\nWHERE\r\n  $__timeFilter(operation_day_date)\r\n  AND instance_id IN (${instance:sqlstring})\r\n  AND concessionaire_name IN (${concessionaire:sqlstring})\r\n  AND route_name IN (${route:sqlstring})\r\nGROUP BY\r\n  route_name\r\nORDER BY\r\n  regexp_replace(route_name, '\\d', '', 'g'),\r\n  NULLIF(\r\n    regexp_replace(route_name, '\\D', '', 'g'),\r\n    ''\r\n  ) :: INT;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [
+                  {
+                    "name": "route_name",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "schedule_relationship",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "name": "COUNT",
+                "parameters": [
+                  {
+                    "name": "*",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "name": "route_name",
+                  "type": "string"
+                },
+                "type": "groupBy"
+              },
+              {
+                "property": {
+                  "name": "schedule_relationship",
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ]
+          },
+          "table": "dim_trips"
+        }
+      ],
+      "title": "Fahrtstatus nach Linie in %",
+      "type": "barchart"
+    }
+  ],
+  "refresh": "15m",
+  "schemaVersion": 39,
+  "tags": [
+    "realtime",
+    "availability"
+  ],
+  "templating": {
+    "list": [
+      {
+        "allValue": "",
+        "current": {
+          "selected": false,
+          "text": [
+            "demo"
+          ],
+          "value": [
+            "demo"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "timeline-postgres"
+        },
+        "definition": "SELECT DISTINCT instance_id FROM fact_stop_times;",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Instanz",
+        "multi": true,
+        "name": "instance",
+        "options": [],
+        "query": "SELECT DISTINCT instance_id FROM fact_stop_times;",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "",
+        "current": {
+          "selected": false,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "timeline-postgres"
+        },
+        "definition": "SELECT DISTINCT concessionaire_name FROM dim_trips",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Konzessionär",
+        "multi": true,
+        "name": "concessionaire",
+        "options": [],
+        "query": "SELECT DISTINCT concessionaire_name FROM dim_trips",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "",
+        "current": {
+          "selected": false,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "timeline-postgres"
+        },
+        "definition": "SELECT DISTINCT route_name FROM dim_trips",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Linie",
+        "multi": true,
+        "name": "route",
+        "options": [],
+        "query": "SELECT DISTINCT route_name FROM dim_trips",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 7,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "15m"
+    ]
+  },
+  "timezone": "browser",
+  "title": "Verfügbarkeit Echtzeitdaten",
+  "uid": "efn51w25mcum8b",
+  "version": 12,
+  "weekStart": ""
+}
