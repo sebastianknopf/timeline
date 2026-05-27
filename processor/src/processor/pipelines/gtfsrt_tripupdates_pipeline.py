@@ -86,11 +86,24 @@ class GtfsRtTripUpdatesPipeline:
             )
 
             route_id = (trip_descriptor.route_id or "").strip() or "UNKNOWN-ROUTE"
+            scheduled_start_time_str: str | None = (trip_descriptor.start_time or "").strip() or None
             trip_schedule_relationship = _enum_name(
                 enum_descriptor=gtfs_realtime_pb2.TripDescriptor.ScheduleRelationship,
                 value=trip_descriptor.schedule_relationship,
                 fallback="UNKNOWN",
             )
+
+            if trip_schedule_relationship == "ADDED":
+                LOGGER.debug(
+                    "realtime_trip_discarded_added_schedule_relationship",
+                    instance_id=instance.id,
+                    pipeline_id=pipeline.id,
+                    trip_id=trip_id,
+                    route_id=route_id,
+                    operation_day_date=str(operation_day),
+                )
+                skipped_entities += 1
+                continue
 
             stop_updates = self._extract_stop_updates(
                 updates=trip_update.stop_time_update,
@@ -113,6 +126,7 @@ class GtfsRtTripUpdatesPipeline:
                 trip_id=trip_id,
                 route_id=route_id,
                 schedule_relationship=trip_schedule_relationship,
+                scheduled_start_time_str=scheduled_start_time_str,
             )
 
             mapped_trip, mapped_stop_times = await self._mapping_service.map_records_for_loading(
@@ -236,21 +250,22 @@ class GtfsRtTripUpdatesPipeline:
         trip_id: str,
         route_id: str,
         schedule_relationship: str,
+        scheduled_start_time_str: str | None,
     ) -> TripRecord:
         # Only identity fields are set here.  All derived trip boundary fields
-        # (nom/act start/end times, stop IDs, distances) require nominal schedule
-        # data from the database and are resolved exclusively by the loading service
-        # in _derive_realtime_trip_fields after nominal matching.
+        # (nom/act start/end times, stop IDs, distances) are resolved from nominal
+        # data by the loading service.  Concessionaire fields are not set because the
+        # realtime pipeline does not own them; the upsert only updates act_* fields on
+        # conflict, so those fields are never written by the realtime path.
         return TripRecord(
             operation_day_date=operation_day,
             trip_id=trip_id,
             route_id=route_id,
             route_name=route_id,
-            concessionaire_id="UNKNOWN-CONCESSIONAIRE",
-            concessionaire_name="Unknown Concessionaire",
             operator_id=None,
             operator_name=None,
             schedule_relationship=schedule_relationship,
+            scheduled_start_time_str=scheduled_start_time_str,
         )
 
     def _build_stop_time_records(

@@ -33,10 +33,6 @@ This pipeline uses these shared configuration keys:
 - `endpoint`
 - `authentication` (optional)
 
-## Optional Pipeline Parameters
-
-Pipeline-specific parameters may be added here in the future.
-
 ## Assumptions
 
 The following assumptions were made while mapping GTFS Realtime TripUpdate data into the Timeline model. They should be reviewed and approved explicitly.
@@ -47,12 +43,13 @@ The following assumptions were made while mapping GTFS Realtime TripUpdate data 
 | A2 | `operation_day_date` is resolved from `TripDescriptor.start_date` when present; otherwise the current calendar date at runtime in `PROCESSOR_TIMEZONE` is used as fallback. In this realtime pipeline, that resolved `operation_day_date` is the date used for matching and finding the corresponding nominal trip. | Supports late/overlapping realtime updates (for example updates still referencing yesterday service date). |
 | A3 | `instance_id` is injected from runtime pipeline instance context. | GTFS Realtime has no native tenant key. |
 | A4 | `TripDescriptor` resolves to a single trip instance (typically via `trip_id`, with start_date/start_time for frequency-based ambiguity). | Prevents ambiguous writes across multiple trip instances. |
-| A5 | The central load service owns nominal-baseline matching. When nominal data is loaded for a trip, each realtime stop-time row is matched to the nominal stop by `stop_sequence`. Stop-time rows that cannot be matched to a nominal sequence are silently dropped. For nominally unknown trips (A10), all rows pass through unmatched. | Guarantees every persisted stop-time row has correct `nom_arrival_time`, `nom_departure_time`, and `distance_from_start` values derived from the schedule. |
+| A5 | The central load service owns nominal-baseline matching. When nominal data is loaded for a trip, each realtime stop-time row is matched to the nominal stop by `stop_sequence`. Stop-time rows that cannot be matched to a nominal sequence are silently dropped. | Guarantees every persisted stop-time row has correct `nom_arrival_time`, `nom_departure_time`, and `distance_from_start` values derived from the schedule. |
 | A6 | `operator_id` and `operator_name` remain null in this pipeline because GTFS-RT TripUpdate does not provide authoritative operator ownership for this model. | Keeps semantics consistent with current database model decisions. |
 | A7 | For mutable realtime fields (`act_*`, `schedule_relationship`), the latest valid information seen wins. | Required by business rule for realtime state convergence. |
 | A8 | A trip that has entirely run until its last station is considered closed and is no longer transformed or updated by this pipeline. The completion decision is based on realtime status, not on nominal status. | Required by business rule to avoid reopening completed trips and to ensure realtime authority over completion state. |
 | A9 | Stop-time updates are processed regardless of whether timestamps are in the past or future. | Required by business rule to keep full trip-update state convergent. |
-| A10 | For nominally unknown trips for the resolved `operation_day_date`, realtime updates may still be accepted and passed to load service for matching/upsert workflows. | Supports delayed nominal ingestion and replacement/new trip scenarios. |
+| A10 | Trips with `schedule_relationship = ADDED` are completely discarded by the pipeline and not forwarded to the load service. Support for ADDED trips and stop times is deferred to a future implementation stage. All other trips that cannot be matched to nominal data (either directly by `trip_id` or alternatively by `route_id` + `start_time`) are also **discarded** by the load service and not persisted. | Prevents phantom trip rows caused by realtime data arriving before the nominal pipeline has run, while keeping the system architecture consistent until ADDED trip support is explicitly designed. |
+| A12 | ADDED trips (`schedule_relationship = ADDED`) and ADDED stop times are not supported in this pipeline version and are discarded with a debug log entry. Support will be added in a later implementation stage. |
 | A11 | When a `StopTimeUpdate` provides a delay or absolute time correction for a stop but the feed does not include explicit updates for all subsequent stops, the central load service propagates the last known effective delay forward to every subsequent nominal stop that has no explicit update. Propagation iterates through the nominal stop sequence in ascending `stop_sequence` order. The effective delay is re-computed at each new explicit update and carried forward again from that point. `schedule_relationship` is always set to `SCHEDULED` for synthesized propagated stops; explicit stop updates retain their own `schedule_relationship`. Stops that precede the first explicit update in the nominal sequence are not affected. | Ensures a complete realtime picture of the trip even when the feed only delivers partial stop coverage, matching the GTFS-RT specification propagation rule. |
 
 ## Transformations
@@ -87,6 +84,8 @@ The following assumptions were made while mapping GTFS Realtime TripUpdate data 
 | `dim_trips` | `schedule_relationship` | `TripDescriptor.schedule_relationship` | Latest-wins update from trip-level schedule relationship. |
 | `dim_trips` | `operator_id` | n/a | Always `null`. |
 | `dim_trips` | `operator_name` | n/a | Always `null`. |
+| `dim_trips` | `concessionaire_id` | n/a | Not set by this pipeline. Owned exclusively by the nominal pipeline. The realtime upsert only updates `act_*` fields on conflict, so this column is never written by the realtime path. |
+| `dim_trips` | `concessionaire_name` | n/a | Not set by this pipeline. Owned exclusively by the nominal pipeline. The realtime upsert only updates `act_*` fields on conflict, so this column is never written by the realtime path. |
 | `fact_stop_times` | `instance_id` | runtime instance | Inject from scheduler pipeline context. |
 | `fact_stop_times` | `operation_day_date` | `TripDescriptor.start_date` or runtime fallback | Use `TripDescriptor.start_date` when present; otherwise use current calendar date at processing time in `PROCESSOR_TIMEZONE`. |
 | `fact_stop_times` | `trip_id` | `TripUpdate.trip.trip_id` | Direct mapping after trip resolution. |

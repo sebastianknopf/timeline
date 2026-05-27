@@ -53,14 +53,24 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
     async def insert_nominal_stops(self, instance_id: str, stops: list[StopRecord]) -> None:
         await self.upsert_nominal_stops(instance_id=instance_id, stops=stops)
 
+    async def insert_nominal_trips(self, instance_id: str, trips: list[TripRecord]) -> None:
+        await asyncio.to_thread(self._insert_nominal_trips_sync, instance_id, trips)
+
+    async def insert_nominal_stop_times(
+        self,
+        instance_id: str,
+        stop_times: list[StopTimeRecord],
+    ) -> None:
+        await asyncio.to_thread(self._insert_nominal_stop_times_sync, instance_id, stop_times)
+
     async def insert_nominal_trip_with_stop_times(
         self,
         instance_id: str,
         trip: TripRecord,
         stop_times: list[StopTimeRecord],
     ) -> None:
-        await self.upsert_nominal_trips(instance_id=instance_id, trips=[trip])
-        await self.upsert_nominal_stop_times(instance_id=instance_id, stop_times=stop_times)
+        await self.insert_nominal_trips(instance_id=instance_id, trips=[trip])
+        await self.insert_nominal_stop_times(instance_id=instance_id, stop_times=stop_times)
 
     async def upsert_realtime_trip(self, instance_id: str, trip: TripRecord) -> None:
         await asyncio.to_thread(self._upsert_realtime_trip_sync, instance_id, trip)
@@ -83,6 +93,21 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
             instance_id,
             operation_day_date,
             trip_id,
+        )
+
+    async def find_nominal_trip_id_by_properties(
+        self,
+        instance_id: str,
+        operation_day_date: date,
+        route_id: str,
+        scheduled_start_time_str: str,
+    ) -> str | None:
+        return await asyncio.to_thread(
+            self._find_nominal_trip_id_by_properties_sync,
+            instance_id,
+            operation_day_date,
+            route_id,
+            scheduled_start_time_str,
         )
 
     def _upsert_nominal_stops_sync(self, instance_id: str, stops: list[StopRecord]) -> None:
@@ -189,6 +214,83 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                     )
                     session.execute(upsert_stmt)
 
+    def _insert_nominal_trips_sync(self, instance_id: str, trips: list[TripRecord]) -> None:
+        if not trips:
+            return
+
+        table = TripDimension.__table__
+
+        with self._session_factory() as session:
+            with session.begin():
+                for trips_chunk in _chunked_records(trips, TRIP_UPSERT_BATCH_SIZE):
+                    rows = [self._trip_values(instance_id, trip) for trip in trips_chunk]
+                    insert_stmt = postgresql_insert(table).values(rows)
+                    # On conflict: refresh route metadata and all nom_* fields so that a
+                    # trip first inserted by the realtime pipeline with placeholder values
+                    # (e.g. route_name = route_id) is corrected by the nominal import.
+                    # act_* fields and schedule_relationship are intentionally excluded
+                    # so that realtime enrichment already present in the database is
+                    # never overwritten by a nominal import run.
+                    upsert_stmt = insert_stmt.on_conflict_do_update(
+                        index_elements=["instance_id", "operation_day_date", "trip_id"],
+                        set_={
+                            "route_id": insert_stmt.excluded.route_id,
+                            "route_name": insert_stmt.excluded.route_name,
+                            "concessionaire_id": insert_stmt.excluded.concessionaire_id,
+                            "concessionaire_name": insert_stmt.excluded.concessionaire_name,
+                            "operator_id": insert_stmt.excluded.operator_id,
+                            "operator_name": insert_stmt.excluded.operator_name,
+                            "nom_start_time": insert_stmt.excluded.nom_start_time,
+                            "nom_end_time": insert_stmt.excluded.nom_end_time,
+                            "nom_start_stop_id": insert_stmt.excluded.nom_start_stop_id,
+                            "nom_end_stop_id": insert_stmt.excluded.nom_end_stop_id,
+                            "nom_total_distance": insert_stmt.excluded.nom_total_distance,
+                        },
+                    )
+                    session.execute(upsert_stmt)
+
+    def _insert_nominal_stop_times_sync(
+        self,
+        instance_id: str,
+        stop_times: list[StopTimeRecord],
+    ) -> None:
+        if not stop_times:
+            return
+
+        table = StopTimeFact.__table__
+
+        with self._session_factory() as session:
+            with session.begin():
+                for stop_times_chunk in _chunked_records(
+                    stop_times,
+                    STOP_TIME_UPSERT_BATCH_SIZE,
+                ):
+                    rows = [
+                        self._stop_time_values(instance_id, stop_time)
+                        for stop_time in stop_times_chunk
+                    ]
+                    insert_stmt = postgresql_insert(table).values(rows)
+                    # On conflict: refresh all nom_* fields so that placeholder nominal
+                    # times written by the realtime pipeline are corrected by the
+                    # nominal import.  act_* fields and schedule_relationship are
+                    # intentionally excluded so that realtime enrichment already present
+                    # in the database is never overwritten by a nominal import run.
+                    upsert_stmt = insert_stmt.on_conflict_do_update(
+                        index_elements=[
+                            "instance_id",
+                            "operation_day_date",
+                            "trip_id",
+                            "stop_id",
+                            "stop_sequence",
+                        ],
+                        set_={
+                            "distance_from_start": insert_stmt.excluded.distance_from_start,
+                            "nom_arrival_time": insert_stmt.excluded.nom_arrival_time,
+                            "nom_departure_time": insert_stmt.excluded.nom_departure_time,
+                        },
+                    )
+                    session.execute(upsert_stmt)
+
     def _upsert_realtime_trip_sync(self, instance_id: str, trip: TripRecord) -> None:
         trip_values = self._trip_values(instance_id, trip)
         table = TripDimension.__table__
@@ -280,6 +382,37 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
             )
             for row in rows
         ]
+
+    def _find_nominal_trip_id_by_properties_sync(
+        self,
+        instance_id: str,
+        operation_day_date: date,
+        route_id: str,
+        scheduled_start_time_str: str,
+    ) -> str | None:
+        try:
+            parts = scheduled_start_time_str.split(":")
+            target_hour = int(parts[0]) % 24
+            target_minute = int(parts[1])
+        except (ValueError, IndexError):
+            return None
+
+        with self._session_factory() as session:
+            rows = list(
+                session.execute(
+                    select(TripDimension.trip_id, TripDimension.nom_start_time)
+                    .where(TripDimension.instance_id == instance_id)
+                    .where(TripDimension.operation_day_date == operation_day_date)
+                    .where(TripDimension.route_id == route_id)
+                ).all()
+            )
+
+        matches = [
+            trip_id
+            for trip_id, nom_start_time in rows
+            if nom_start_time.hour == target_hour and nom_start_time.minute == target_minute
+        ]
+        return matches[0] if len(matches) == 1 else None
 
     def _trip_values(self, instance_id: str, trip: TripRecord) -> dict[str, object]:
         return {

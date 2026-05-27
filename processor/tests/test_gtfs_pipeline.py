@@ -41,14 +41,24 @@ class RecordingRepository:
     async def insert_nominal_stops(self, instance_id: str, stops: list[StopRecord]) -> None:
         await self.upsert_nominal_stops(instance_id=instance_id, stops=stops)
 
+    async def insert_nominal_trips(self, instance_id: str, trips: list[TripRecord]) -> None:
+        self.trips.extend(trips)
+
+    async def insert_nominal_stop_times(
+        self,
+        instance_id: str,
+        stop_times: list[StopTimeRecord],
+    ) -> None:
+        self.stop_times.extend(stop_times)
+
     async def insert_nominal_trip_with_stop_times(
         self,
         instance_id: str,
         trip: TripRecord,
         stop_times: list[StopTimeRecord],
     ) -> None:
-        await self.upsert_nominal_trips(instance_id=instance_id, trips=[trip])
-        await self.upsert_nominal_stop_times(instance_id=instance_id, stop_times=stop_times)
+        await self.insert_nominal_trips(instance_id=instance_id, trips=[trip])
+        await self.insert_nominal_stop_times(instance_id=instance_id, stop_times=stop_times)
 
     async def upsert_realtime_trip(self, instance_id: str, trip: TripRecord) -> None:
         return None

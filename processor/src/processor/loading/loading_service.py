@@ -3,8 +3,12 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timedelta
 
+import structlog
+
 from ..repository.intf_timeline_repository import TimelineRepositoryInterface
 from .models import StopRecord, StopTimeRecord, TripRecord
+
+LOGGER = structlog.get_logger(__name__)
 
 
 class LoadingService:
@@ -17,14 +21,14 @@ class LoadingService:
         await self._repository.upsert_nominal_stops(instance_id=instance_id, stops=stops)
 
     async def load_nominal_trips_batch(self, instance_id: str, trips: list[TripRecord]) -> None:
-        await self._repository.upsert_nominal_trips(instance_id=instance_id, trips=trips)
+        await self._repository.insert_nominal_trips(instance_id=instance_id, trips=trips)
 
     async def load_nominal_stop_times_batch(
         self,
         instance_id: str,
         stop_times: list[StopTimeRecord],
     ) -> None:
-        await self._repository.upsert_nominal_stop_times(
+        await self._repository.insert_nominal_stop_times(
             instance_id=instance_id,
             stop_times=stop_times,
         )
@@ -38,8 +42,11 @@ class LoadingService:
         trip: TripRecord,
         stop_times: list[StopTimeRecord],
     ) -> None:
-        await self.load_nominal_trips_batch(instance_id=instance_id, trips=[trip])
-        await self.load_nominal_stop_times_batch(instance_id=instance_id, stop_times=stop_times)
+        await self._repository.insert_nominal_trip_with_stop_times(
+            instance_id=instance_id,
+            trip=trip,
+            stop_times=stop_times,
+        )
 
     async def load_realtime_trip_and_stop_times(
         self,
@@ -55,6 +62,43 @@ class LoadingService:
             operation_day_date=trip.operation_day_date,
             trip_id=trip.trip_id,
         )
+
+        if not nominal_stop_times:
+            # Non-nominal trip: try alternative matching using route_id and scheduled start time
+            # as fallback (per GTFS-RT TripDescriptor spec).  If no nominal trip can be
+            # identified, the update is discarded to prevent phantom rows in the database.
+            # ADDED trips are discarded at the pipeline level before reaching here.
+            matched_trip_id = await self._resolve_nominal_trip_id(
+                instance_id=instance_id,
+                trip=trip,
+            )
+            if matched_trip_id is None:
+                LOGGER.debug(
+                    "realtime_trip_discarded_no_nominal_match",
+                    instance_id=instance_id,
+                    trip_id=trip.trip_id,
+                    route_id=trip.route_id,
+                    operation_day_date=str(trip.operation_day_date),
+                    schedule_relationship=trip.schedule_relationship,
+                )
+                return
+            nominal_stop_times = await self._repository.get_nominal_stop_times_for_trip(
+                instance_id=instance_id,
+                operation_day_date=trip.operation_day_date,
+                trip_id=matched_trip_id,
+            )
+            if not nominal_stop_times:
+                LOGGER.debug(
+                    "realtime_trip_discarded_no_nominal_stop_times",
+                    instance_id=instance_id,
+                    trip_id=trip.trip_id,
+                    matched_trip_id=matched_trip_id,
+                    operation_day_date=str(trip.operation_day_date),
+                )
+                return
+            # Remap to the nominal trip_id for consistent DB primary-key usage.
+            trip = replace(trip, trip_id=matched_trip_id)
+            stop_times = [replace(st, trip_id=matched_trip_id) for st in stop_times]
 
         normalized_input = self._apply_nominal_baseline(stop_times=stop_times, nominal_stop_times=nominal_stop_times)
         if not normalized_input:
@@ -77,12 +121,33 @@ class LoadingService:
             stop_times=normalized_stop_times,
         )
 
+    async def _resolve_nominal_trip_id(
+        self,
+        instance_id: str,
+        trip: TripRecord,
+    ) -> str | None:
+        """Attempt to resolve a nominal trip_id using route_id and scheduled start time.
+
+        This secondary lookup is used when the primary trip_id from the realtime feed does not
+        match any nominal entry for the operation day.  Returns the matched nominal trip_id, or
+        None when no unambiguous match can be found.
+        """
+        if trip.scheduled_start_time_str is None:
+            return None
+        return await self._repository.find_nominal_trip_id_by_properties(
+            instance_id=instance_id,
+            operation_day_date=trip.operation_day_date,
+            route_id=trip.route_id,
+            scheduled_start_time_str=trip.scheduled_start_time_str,
+        )
+
     def _apply_nominal_baseline(
         self,
         stop_times: list[StopTimeRecord],
         nominal_stop_times: list[StopTimeRecord],
     ) -> list[StopTimeRecord]:
-        # When no nominal data exists at all, pass through as-is (A10: nominally unknown trips).
+        # Defensive guard: all trips reaching this point must have nominal data since
+        # non-nominal trips are discarded earlier in load_realtime_trip_and_stop_times.
         if not nominal_stop_times:
             return stop_times
 

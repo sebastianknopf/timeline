@@ -91,7 +91,8 @@ The central load service owns all load-phase responsibilities:
 
 - receiving normalized data from pipelines and loading it into the database
 - being the only service allowed to interact with PostgreSQL directly for both reads (queries/matching lookups) and writes (insert/upsert/update)
-- applying upsert-based persistence as the default write strategy
+- applying **insert-or-ignore** persistence for nominal trips and stop times (see write strategy below)
+- applying upsert-based persistence for nominal stops and all realtime data
 - handling matching workflows when realtime records arrive without corresponding nominal records
 - resolving trip identity after mapped identifiers are provided by the central mapping service
 - ensuring atomic database behavior even when asynchronous pipeline runs call the service concurrently
@@ -99,6 +100,30 @@ The central load service owns all load-phase responsibilities:
 - enforcing realtime update scope so conflict updates only touch `act_*` and `schedule_relationship`
 - deriving `dim_trips.act_start_time` and `dim_trips.act_end_time` from first/last nominal departure rows ordered by `stop_sequence` (with nominal departure tie-break), with nominal departure fallback when realtime values are missing
 - persisting `dim_trips.act_end_time` only after the derived end candidate timestamp is reached (`<= now`), otherwise keeping it `NULL`
+
+#### Nominal write strategy
+
+Nominal trips (`dim_trips`) and nominal stop times (`fact_stop_times`) use a **selective upsert** strategy that protects realtime fields:
+
+- When a nominal trip or stop-time row is pushed by the nominal pipeline and no matching row exists yet, the full row is inserted.
+- When a matching row already exists (same `instance_id`, `operation_day_date`, `trip_id`, and optionally `stop_id` / `stop_sequence`), **only nom fields and route metadata are updated**; realtime fields are never touched.
+
+Fields updated on conflict for `dim_trips`:
+`route_id`, `route_name`, `concessionaire_id`, `concessionaire_name`, `operator_id`, `operator_name`, `nom_start_time`, `nom_end_time`, `nom_start_stop_id`, `nom_end_stop_id`, `nom_total_distance`
+
+Fields intentionally excluded from nominal conflict updates for `dim_trips`:
+`act_start_time`, `act_end_time`, `act_total_distance`, `schedule_relationship`
+
+Fields updated on conflict for `fact_stop_times`:
+`distance_from_start`, `nom_arrival_time`, `nom_departure_time`
+
+Fields intentionally excluded from nominal conflict updates for `fact_stop_times`:
+`act_arrival_time`, `act_departure_time`, `schedule_relationship`
+
+This design handles the following important scenarios:
+- **Nominal re-runs**: a trip that was inserted during an earlier nominal run and has since been enriched by the realtime pipeline keeps all its realtime data intact.
+
+Nominal stops (`dim_stops`) continue to use full upsert semantics because stop metadata (name, coordinates) is expected to change across feed versions.
 
 
 Atomicity and asynchronous concurrency requirements:

@@ -35,13 +35,39 @@ class TimelineRepositoryInterface(Protocol):
     ) -> None:
         """Insert nominal stops for one instance."""
 
+    async def insert_nominal_trips(
+        self,
+        instance_id: str,
+        trips: list[TripRecord],
+    ) -> None:
+        """Insert nominal trips for one instance.
+
+        Rows for trips that already exist (same instance_id, operation_day_date, trip_id) are
+        silently skipped so that in-progress trips with realtime data are never overwritten.
+        """
+
+    async def insert_nominal_stop_times(
+        self,
+        instance_id: str,
+        stop_times: list[StopTimeRecord],
+    ) -> None:
+        """Insert nominal stop times for one instance.
+
+        Rows for stop times that already exist are silently skipped so that in-progress stop
+        times with realtime data are never overwritten.
+        """
+
     async def insert_nominal_trip_with_stop_times(
         self,
         instance_id: str,
         trip: TripRecord,
         stop_times: list[StopTimeRecord],
     ) -> None:
-        """Insert one nominal trip and related nominal stop times."""
+        """Insert one nominal trip and related nominal stop times.
+
+        Both the trip and every stop time row are only written when no matching row already
+        exists, preserving any realtime enrichment that may already be present in the database.
+        """
 
     async def upsert_realtime_trip(
         self,
@@ -64,3 +90,18 @@ class TimelineRepositoryInterface(Protocol):
         trip_id: str,
     ) -> list[StopTimeRecord]:
         """Read nominal stop-time baseline for one trip and operation day."""
+
+    async def find_nominal_trip_id_by_properties(
+        self,
+        instance_id: str,
+        operation_day_date: date,
+        route_id: str,
+        scheduled_start_time_str: str,
+    ) -> str | None:
+        """Find the nominal trip_id for a given route and scheduled start time on an operation day.
+
+        Used as a secondary lookup when the primary trip_id from the realtime feed does not
+        match any nominal trip row.  The lookup is based on route_id and the hour/minute of
+        the nominal start time stored in dim_trips.  Returns the trip_id when exactly one match
+        is found; returns None when no match or when the result is ambiguous.
+        """
