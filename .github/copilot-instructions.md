@@ -42,4 +42,4 @@
 - Create unit tests for every module.
 - Do not add automated unit tests for Alembic migrations. Migration validation must be performed manually.
 - Use only Python's standard `unittest` package for test implementation.
-- For local testing, run tests only with the local project virtual environment.
+- For local testing, always use the project virtual environment at `{workspaceDirectory}/venv` (activate with `{workspaceDirectory}/venv/Scripts/Activate.ps1` on Windows). Never use system Python or create a new virtual environment.
