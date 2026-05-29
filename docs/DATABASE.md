@@ -6,10 +6,10 @@ For the overall system architecture, see [docs/ARCHITECTURE.md](ARCHITECTURE.md)
 
 ## Modeling Principle
 
-The database uses one central fact table and two dimensions:
+The database uses one central fact table and three dimensions:
 
 - fact table: `fact_stop_times`
-- dimensions: `dim_stops`, `dim_trips`
+- dimensions: `dim_stops`, `dim_routes`, `dim_trips`
 
 `instance_id` is mandatory in all tables and is always part of relational keys. This enforces tenant-like isolation so data from different instances remains separated.
 
@@ -65,6 +65,22 @@ Primary key:
 
 - (`instance_id`, `stop_id`)
 
+### dim_routes
+
+| Column | Type | Nullable | Notes |
+| --- | --- | --- | --- |
+| `instance_id` | `text` | no | Instance scope key |
+| `route_id` | `text` | no | Route identifier within instance |
+| `route_name` | `text` | no | Human-readable route name |
+| `concessionaire_id` | `text` | yes | Concessionaire identifier |
+| `concessionaire_name` | `text` | yes | Concessionaire name |
+| `operator_id` | `text` | yes | Operator identifier |
+| `operator_name` | `text` | yes | Operator name |
+
+Primary key:
+
+- (`instance_id`, `route_id`)
+
 ### dim_trips
 
 | Column | Type | Nullable | Notes |
@@ -72,10 +88,9 @@ Primary key:
 | `instance_id` | `text` | no | Instance scope key |
 | `operation_day_date` | `date` | no | Operation day |
 | `trip_id` | `text` | no | Trip identifier within instance/day |
-| `route_id` | `text` | no | Route identifier |
-| `route_name` | `text` | no | Route name |
-| `concessionaire_id` | `text` | no | Concessionaire identifier |
-| `concessionaire_name` | `text` | no | Concessionaire name |
+| `route_id` | `text` | no | Route identifier; references `dim_routes` |
+| `concessionaire_id` | `text` | yes | Concessionaire identifier |
+| `concessionaire_name` | `text` | yes | Concessionaire name |
 | `operator_id` | `text` | yes | Operator identifier |
 | `operator_name` | `text` | yes | Operator name |
 | `nom_start_time` | `timestamptz` | no | Planned start timestamp |
@@ -94,8 +109,9 @@ Primary key:
 
 Foreign keys:
 
-- (`instance_id`, `nom_start_stop_id`) references `dim_stops` (`instance_id`, `stop_id`)
-- (`instance_id`, `nom_end_stop_id`) references `dim_stops` (`instance_id`, `stop_id`)
+- (`instance_id`, `route_id`) references `dim_routes` (`instance_id`, `route_id`) — ON DELETE RESTRICT
+- (`instance_id`, `nom_start_stop_id`) references `dim_stops` (`instance_id`, `stop_id`) — ON DELETE RESTRICT
+- (`instance_id`, `nom_end_stop_id`) references `dim_stops` (`instance_id`, `stop_id`) — ON DELETE RESTRICT
 
 ### fact_stop_times
 
@@ -119,8 +135,8 @@ Primary key:
 
 Foreign keys:
 
-- (`instance_id`, `stop_id`) references `dim_stops` (`instance_id`, `stop_id`)
-- (`instance_id`, `operation_day_date`, `trip_id`) references `dim_trips` (`instance_id`, `operation_day_date`, `trip_id`)
+- (`instance_id`, `stop_id`) references `dim_stops` (`instance_id`, `stop_id`) — ON DELETE RESTRICT
+- (`instance_id`, `operation_day_date`, `trip_id`) references `dim_trips` (`instance_id`, `operation_day_date`, `trip_id`) — ON DELETE RESTRICT
 
 Design note:
 
@@ -133,12 +149,16 @@ Cardinality:
 - one `dim_stops` row can be referenced by many `fact_stop_times` rows
 - one `dim_trips` row can be referenced by many `fact_stop_times` rows
 - one `dim_stops` row can also be referenced by many `dim_trips` rows through `nom_start_stop_id` and `nom_end_stop_id`
+- one `dim_routes` row can be referenced by many `dim_trips` rows through `route_id`
+
+All foreign key relationships enforce referential integrity with `ON DELETE RESTRICT`. Deleting a parent row that is still referenced by a child row will fail immediately.
 
 Logical model flow:
 
 1. `dim_stops` contains normalized stop metadata per instance.
-2. `dim_trips` contains trip-level aggregates per instance and operation day.
-3. `fact_stop_times` contains stop-time facts linked to both dimensions.
+2. `dim_routes` contains normalized route metadata per instance, including concessionaire and operator information.
+3. `dim_trips` contains trip-level aggregates per instance and operation day, linked to a route in `dim_routes`.
+4. `fact_stop_times` contains stop-time facts linked to both `dim_stops` and `dim_trips`.
 
 ## Index Strategy
 
@@ -147,6 +167,7 @@ The following indexes should be created to keep joins and instance-scoped filter
 ### Required indexes from primary keys
 
 - `dim_stops`: pk (`instance_id`, `stop_id`)
+- `dim_routes`: pk (`instance_id`, `route_id`)
 - `dim_trips`: pk (`instance_id`, `operation_day_date`, `trip_id`)
 - `fact_stop_times`: pk (`instance_id`, `operation_day_date`, `trip_id`, `stop_id`, `stop_sequence`)
 
@@ -155,6 +176,11 @@ The following indexes should be created to keep joins and instance-scoped filter
 `dim_stops`:
 
 - idx for stop-name lookups per instance: (`instance_id`, `stop_name`)
+
+`dim_routes`:
+
+- idx for concessionaire-based filtering per instance: (`instance_id`, `concessionaire_id`)
+- idx for operator-based filtering per instance: (`instance_id`, `operator_id`)
 
 `dim_trips`:
 
@@ -180,7 +206,7 @@ The processor intentionally uses two different `models.py` modules with differen
 
 Database ORM models (`processor/src/processor/database/models.py`):
 
-- SQLAlchemy declarative classes for persisted tables (`dim_stops`, `dim_trips`, `fact_stop_times`)
+- SQLAlchemy declarative classes for persisted tables (`dim_stops`, `dim_routes`, `dim_trips`, `fact_stop_times`)
 - include table metadata, primary keys, foreign keys, indexes, and database column types
 - used by Alembic metadata wiring and concrete repository persistence logic
 

@@ -13,17 +13,24 @@ class StopRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class RouteRecord:
+    route_id: str
+    route_name: str
+    concessionaire_id: str | None
+    concessionaire_name: str | None
+    operator_id: str | None
+    operator_name: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class TripRecord:
     operation_day_date: date
     trip_id: str
     route_id: str
-    route_name: str
     operator_id: str | None
     operator_name: str | None
-    # concessionaire_id and concessionaire_name are populated exclusively by the nominal
-    # pipeline from the static GTFS feed.  The realtime pipeline does not own these
-    # fields and leaves them as None.  The realtime upsert only updates act_* fields on
-    # conflict, so None values here never reach the database through the realtime path.
+    # concessionaire_id and concessionaire_name are stored at route level (dim_routes).
+    # Both nominal and realtime pipelines leave them as None at trip level.
     concessionaire_id: str | None = None
     concessionaire_name: str | None = None
     # The following fields are derived from nominal schedule data and resolved by the

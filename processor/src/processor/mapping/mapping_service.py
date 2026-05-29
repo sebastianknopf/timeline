@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
 
-from ..loading.models import StopRecord, StopTimeRecord, TripRecord
+from ..loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
 from ..runtime_config import PipelineConfig
 from .intf_mapping_service import MappingServiceInterface
 
@@ -77,7 +77,6 @@ class MappingService(MappingServiceInterface):
             operation_day_date=trip.operation_day_date,
             trip_id=trip.trip_id,
             route_id=self._map_value(trip.route_id, mapping_data.routes),
-            route_name=trip.route_name,
             concessionaire_id=trip.concessionaire_id,
             concessionaire_name=trip.concessionaire_name,
             operator_id=trip.operator_id,

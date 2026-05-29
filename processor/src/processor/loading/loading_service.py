@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import structlog
 
 from ..repository.intf_timeline_repository import TimelineRepositoryInterface
-from .models import StopRecord, StopTimeRecord, TripRecord
+from .models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
 
 LOGGER = structlog.get_logger(__name__)
 
@@ -19,6 +19,9 @@ class LoadingService:
 
     async def load_nominal_stops_batch(self, instance_id: str, stops: list[StopRecord]) -> None:
         await self._repository.upsert_nominal_stops(instance_id=instance_id, stops=stops)
+
+    async def load_nominal_routes_batch(self, instance_id: str, routes: list[RouteRecord]) -> None:
+        await self._repository.insert_nominal_routes(instance_id=instance_id, routes=routes)
 
     async def load_nominal_trips_batch(self, instance_id: str, trips: list[TripRecord]) -> None:
         await self._repository.insert_nominal_trips(instance_id=instance_id, trips=trips)

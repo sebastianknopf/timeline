@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 from zoneinfo import ZoneInfo
 
@@ -12,8 +13,9 @@ try:
 except ImportError:
     import _test_bootstrap
 
+import processor.pipelines.gtfs_pipeline as _gtfs_pipeline_module
 from processor.loading.loading_service import LoadingService
-from processor.loading.models import StopRecord, StopTimeRecord, TripRecord
+from processor.loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
 from processor.mapping.mapping_service import MappingService
 from processor.pipelines.gtfs_pipeline import GtfsNominalPipeline
 from processor.runtime_config import InstanceConfig, MappingConfig, PipelineConfig
@@ -22,11 +24,15 @@ from processor.runtime_config import InstanceConfig, MappingConfig, PipelineConf
 class RecordingRepository:
     def __init__(self) -> None:
         self.stops: list[StopRecord] = []
+        self.routes: list[RouteRecord] = []
         self.trips: list[TripRecord] = []
         self.stop_times: list[StopTimeRecord] = []
 
     async def upsert_nominal_stops(self, instance_id: str, stops: list[StopRecord]) -> None:
         self.stops.extend(stops)
+
+    async def insert_nominal_routes(self, instance_id: str, routes: list[RouteRecord]) -> None:
+        self.routes.extend(routes)
 
     async def upsert_nominal_trips(self, instance_id: str, trips: list[TripRecord]) -> None:
         self.trips.extend(trips)
@@ -145,13 +151,107 @@ class GtfsNominalPipelineTests(unittest.IsolatedAsyncioTestCase):
             await gtfs_pipeline.execute(instance=instance, pipeline=pipeline)
 
             self.assertEqual(2, len(repository.stops))
+            self.assertEqual(1, len(repository.routes))
             self.assertEqual(1, len(repository.trips))
             self.assertEqual(2, len(repository.stop_times))
             self.assertEqual({"STOP-A", "STOP-B"}, {item.stop_id for item in repository.stops})
             self.assertEqual("ROUTE-1", repository.trips[0].route_id)
-            self.assertEqual("R1", repository.trips[0].route_name)
+            self.assertEqual("ROUTE-1", repository.routes[0].route_id)
+            self.assertEqual("R1", repository.routes[0].route_name)  # route_short_name takes priority (A8)
             self.assertEqual("STOP-A", repository.trips[0].nom_start_stop_id)
             self.assertEqual("STOP-B", repository.trips[0].nom_end_stop_id)
+
+    async def test_pipeline_uses_processor_timezone_for_operation_day_date(self) -> None:
+        # Regression guard for A4: operation_day_date must reflect the current date in
+        # PROCESSOR_TIMEZONE, never UTC.
+        #
+        # Scenario: processor runs at 2026-05-28 00:30 Europe/Berlin (CEST, UTC+2),
+        # which is 2026-05-27 22:30 UTC.
+        #
+        # 2026-05-28 is a Thursday; the GTFS calendar activates only on Thursdays.
+        # If UTC were used, the resolved date would be 2026-05-27 (Wednesday) and no
+        # trips would pass the service-calendar filter — the pipeline would load nothing.
+        # Only correct use of PROCESSOR_TIMEZONE (Berlin) yields date(2026, 5, 28) and
+        # therefore produces the expected loaded records.
+        berlin_tz = ZoneInfo("Europe/Berlin")
+        # 2026-05-28 00:30 Berlin = 2026-05-27 22:30 UTC
+        fixed_now_berlin = datetime(2026, 5, 28, 0, 30, 0, tzinfo=berlin_tz)
+
+        class _FixedNowDatetime(datetime):
+            @classmethod
+            def now(cls, tz=None):  # type: ignore[override]
+                if tz is not None:
+                    return fixed_now_berlin.astimezone(tz)
+                return fixed_now_berlin
+
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+
+            gtfs_zip = tmp_dir / "gtfs-opday-tz.zip"
+            with zipfile.ZipFile(gtfs_zip, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr(
+                    "agency.txt",
+                    "agency_id,agency_name,agency_timezone\nA1,Agency One,Europe/Berlin\n",
+                )
+                archive.writestr(
+                    "calendar.txt",
+                    # Service SVC-TH only runs on Thursdays (weekday index 3).
+                    # date(2026, 5, 28).weekday() == 3  -> Thursday  -> trips loaded.
+                    # date(2026, 5, 27).weekday() == 2  -> Wednesday -> no trips (UTC-wrong path).
+                    "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n"
+                    "SVC-TH,0,0,0,1,0,0,0,20260101,20261231\n",
+                )
+                archive.writestr(
+                    "routes.txt",
+                    "route_id,agency_id,route_short_name\nR1,A1,R1\n",
+                )
+                archive.writestr(
+                    "trips.txt",
+                    "route_id,service_id,trip_id\nR1,SVC-TH,T-OPDAY\n",
+                )
+                archive.writestr(
+                    "stops.txt",
+                    "stop_id,stop_name,stop_lat,stop_lon,location_type\n"
+                    "S1,Stop 1,48.1,8.1,0\nS2,Stop 2,48.2,8.2,0\n",
+                )
+                archive.writestr(
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+                    "T-OPDAY,08:00:00,08:01:00,S1,1\n"
+                    "T-OPDAY,09:00:00,09:01:00,S2,2\n",
+                )
+
+            pipeline = PipelineConfig(
+                id="nominal-main",
+                name="gtfs",
+                type="nominal",
+                cron="0 2 * * *",
+                endpoint=gtfs_zip.as_uri(),
+            )
+            instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+            mapping_service = MappingService()
+            mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+
+            repository = RecordingRepository()
+            loading_service = LoadingService(repository=repository)
+            gtfs_pipeline = GtfsNominalPipeline(
+                loading_service=loading_service,
+                mapping_service=mapping_service,
+                processor_timezone_name="Europe/Berlin",
+            )
+
+            with patch.object(_gtfs_pipeline_module, "datetime", _FixedNowDatetime):
+                await gtfs_pipeline.execute(instance=instance, pipeline=pipeline)
+
+            # Trips must have been loaded (calendar activates on Thursday = Berlin date).
+            self.assertEqual(1, len(repository.trips), "No trips loaded — operation_day_date timezone is wrong")
+            self.assertEqual(2, len(repository.stop_times))
+
+            # operation_day_date must be the Berlin date (2026-05-28), not the UTC date (2026-05-27).
+            self.assertEqual(date(2026, 5, 28), repository.trips[0].operation_day_date)
+            for stop_time in repository.stop_times:
+                self.assertEqual(date(2026, 5, 28), stop_time.operation_day_date)
 
     async def test_pipeline_converts_gtfs_times_to_processor_timezone(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir_str:

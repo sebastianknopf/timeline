@@ -254,14 +254,13 @@ class GtfsRtTripUpdatesPipeline:
     ) -> TripRecord:
         # Only identity fields are set here.  All derived trip boundary fields
         # (nom/act start/end times, stop IDs, distances) are resolved from nominal
-        # data by the loading service.  Concessionaire fields are not set because the
-        # realtime pipeline does not own them; the upsert only updates act_* fields on
-        # conflict, so those fields are never written by the realtime path.
+        # data by the loading service.  Concessionaire and operator fields are not
+        # set because the realtime pipeline does not own them; the upsert only updates
+        # act_* fields on conflict, so those fields are never written by the realtime path.
         return TripRecord(
             operation_day_date=operation_day,
             trip_id=trip_id,
             route_id=route_id,
-            route_name=route_id,
             operator_id=None,
             operator_name=None,
             schedule_relationship=schedule_relationship,

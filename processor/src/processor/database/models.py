@@ -25,6 +25,23 @@ class StopDimension(Base):
     stop_lon: Mapped[float] = mapped_column(Double, nullable=False)
 
 
+class RouteDimension(Base):
+    __tablename__: ClassVar[str] = "dim_routes"
+    __table_args__ = (
+        PrimaryKeyConstraint("instance_id", "route_id", name="pk_dim_routes"),
+        Index("ix_dim_routes_instance_id_concessionaire_id", "instance_id", "concessionaire_id"),
+        Index("ix_dim_routes_instance_id_operator_id", "instance_id", "operator_id"),
+    )
+
+    instance_id: Mapped[str] = mapped_column(Text, nullable=False)
+    route_id: Mapped[str] = mapped_column(Text, nullable=False)
+    route_name: Mapped[str] = mapped_column(Text, nullable=False)
+    concessionaire_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    concessionaire_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    operator_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    operator_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class TripDimension(Base):
     __tablename__: ClassVar[str] = "dim_trips"
     __table_args__ = (
@@ -35,14 +52,22 @@ class TripDimension(Base):
             name="pk_dim_trips",
         ),
         ForeignKeyConstraint(
+            ["instance_id", "route_id"],
+            ["dim_routes.instance_id", "dim_routes.route_id"],
+            name="fk_dim_trips_route",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
             ["instance_id", "nom_start_stop_id"],
             ["dim_stops.instance_id", "dim_stops.stop_id"],
             name="fk_dim_trips_nom_start_stop",
+            ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
             ["instance_id", "nom_end_stop_id"],
             ["dim_stops.instance_id", "dim_stops.stop_id"],
             name="fk_dim_trips_nom_end_stop",
+            ondelete="RESTRICT",
         ),
         Index(
             "ix_dim_trips_instance_id_operation_day_date_route_id",
@@ -68,9 +93,8 @@ class TripDimension(Base):
     operation_day_date: Mapped[date] = mapped_column(Date, nullable=False)
     trip_id: Mapped[str] = mapped_column(Text, nullable=False)
     route_id: Mapped[str] = mapped_column(Text, nullable=False)
-    route_name: Mapped[str] = mapped_column(Text, nullable=False)
-    concessionaire_id: Mapped[str] = mapped_column(Text, nullable=False)
-    concessionaire_name: Mapped[str] = mapped_column(Text, nullable=False)
+    concessionaire_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    concessionaire_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     operator_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     operator_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     nom_start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -103,6 +127,7 @@ class StopTimeFact(Base):
             ["instance_id", "stop_id"],
             ["dim_stops.instance_id", "dim_stops.stop_id"],
             name="fk_fact_stop_times_stop",
+            ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
             ["instance_id", "operation_day_date", "trip_id"],
@@ -112,6 +137,7 @@ class StopTimeFact(Base):
                 "dim_trips.trip_id",
             ],
             name="fk_fact_stop_times_trip",
+            ondelete="RESTRICT",
         ),
         Index(
             "ix_fact_stop_times_instance_id_operation_day_date_stop_id",

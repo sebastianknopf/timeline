@@ -20,7 +20,7 @@ def _compiled_type(column_name: str, table_name: str) -> str:
 class DatabaseModelsTests(unittest.TestCase):
     def test_metadata_contains_documented_tables(self) -> None:
         self.assertEqual(
-            {"dim_stops", "dim_trips", "fact_stop_times"},
+            {"dim_stops", "dim_routes", "dim_trips", "fact_stop_times"},
             set(Base.metadata.tables.keys()),
         )
 
@@ -54,9 +54,8 @@ class DatabaseModelsTests(unittest.TestCase):
             "operation_day_date": ("DATE", False),
             "trip_id": ("TEXT", False),
             "route_id": ("TEXT", False),
-            "route_name": ("TEXT", False),
-            "concessionaire_id": ("TEXT", False),
-            "concessionaire_name": ("TEXT", False),
+            "concessionaire_id": ("TEXT", True),
+            "concessionaire_name": ("TEXT", True),
             "operator_id": ("TEXT", True),
             "operator_name": ("TEXT", True),
             "nom_start_time": ("TIMESTAMP WITH TIME ZONE", False),
@@ -81,6 +80,18 @@ class DatabaseModelsTests(unittest.TestCase):
         )
         self.assertEqual("'UNKNOWN'", table.c.schedule_relationship.server_default.arg.text)
         self.assertEqual(
+            {"instance_id": ("TEXT", True), "operation_day_date": ("DATE", True), "route_id": ("TEXT", True)},
+            {
+                k: (str(v.type.compile(dialect=postgresql.dialect())), True)
+                for constraint in table.indexes
+                if tuple(constraint.columns.keys()) == ("instance_id", "operation_day_date", "route_id")
+                for k, v in constraint.columns.items()
+            } if any(
+                tuple(idx.columns.keys()) == ("instance_id", "operation_day_date", "route_id")
+                for idx in table.indexes
+            ) else {},
+        )
+        self.assertEqual(
             {
                 ("instance_id", "operation_day_date", "route_id"),
                 ("instance_id", "operation_day_date", "operator_id"),
@@ -90,11 +101,40 @@ class DatabaseModelsTests(unittest.TestCase):
         )
         self.assertEqual(
             {
+                ("instance_id", "route_id"),
                 ("instance_id", "nom_start_stop_id"),
                 ("instance_id", "nom_end_stop_id"),
             },
             {tuple(constraint.column_keys) for constraint in table.foreign_key_constraints},
         )
+
+    def test_dim_routes_matches_database_documentation(self) -> None:
+        table = Base.metadata.tables["dim_routes"]
+
+        expected_columns = {
+            "instance_id": ("TEXT", False),
+            "route_id": ("TEXT", False),
+            "route_name": ("TEXT", False),
+            "concessionaire_id": ("TEXT", True),
+            "concessionaire_name": ("TEXT", True),
+            "operator_id": ("TEXT", True),
+            "operator_name": ("TEXT", True),
+        }
+
+        self.assertEqual(set(expected_columns.keys()), set(table.c.keys()))
+        for column_name, (expected_type, expected_nullable) in expected_columns.items():
+            self.assertEqual(expected_type, _compiled_type(column_name, "dim_routes"))
+            self.assertEqual(expected_nullable, table.c[column_name].nullable)
+
+        self.assertEqual(["instance_id", "route_id"], list(table.primary_key.columns.keys()))
+        self.assertEqual(
+            {
+                ("instance_id", "concessionaire_id"),
+                ("instance_id", "operator_id"),
+            },
+            {tuple(index.columns.keys()) for index in table.indexes},
+        )
+        self.assertEqual(set(), {tuple(c.column_keys) for c in table.foreign_key_constraints})
 
     def test_fact_stop_times_matches_database_documentation(self) -> None:
         table = Base.metadata.tables["fact_stop_times"]

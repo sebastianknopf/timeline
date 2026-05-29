@@ -14,7 +14,7 @@ except ImportError:
     import _test_bootstrap
 
 from processor.loading.loading_service import LoadingService
-from processor.loading.models import StopTimeRecord, TripRecord
+from processor.loading.models import RouteRecord, StopTimeRecord, TripRecord
 from processor.mapping.mapping_service import MappingService
 from processor.pipelines.gtfsrt_tripupdates_pipeline import GtfsRtTripUpdatesPipeline
 from processor.runtime_config import InstanceConfig, MappingConfig, PipelineConfig
@@ -27,6 +27,9 @@ class RecordingRepository:
         self.nominal_stop_times: list[StopTimeRecord] = []
 
     async def upsert_nominal_stops(self, instance_id: str, stops: list[object]) -> None:
+        return None
+
+    async def insert_nominal_routes(self, instance_id: str, routes: list[RouteRecord]) -> None:
         return None
 
     async def upsert_nominal_trips(self, instance_id: str, trips: list[TripRecord]) -> None:

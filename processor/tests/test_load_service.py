@@ -10,7 +10,7 @@ except ImportError:
     import _test_bootstrap
 
 from processor.loading.loading_service import LoadingService
-from processor.loading.models import StopRecord, StopTimeRecord, TripRecord
+from processor.loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
 from processor.repository.intf_timeline_repository import TimelineRepositoryInterface
 
 
@@ -26,6 +26,9 @@ class RecordingRepository(TimelineRepositoryInterface):
 
     async def upsert_nominal_stops(self, instance_id: str, stops: list[StopRecord]) -> None:
         self.calls.append(("upsert_nominal_stops", instance_id, len(stops)))
+
+    async def insert_nominal_routes(self, instance_id: str, routes: list[RouteRecord]) -> None:
+        self.calls.append(("insert_nominal_routes", instance_id, len(routes)))
 
     async def upsert_nominal_trips(self, instance_id: str, trips: list[TripRecord]) -> None:
         self.calls.append(("upsert_nominal_trips", instance_id, len(trips)))
@@ -149,9 +152,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operation_day_date=date(2026, 5, 24),
             trip_id="trip-1",
             route_id="route-1",
-            route_name="Route 1",
-            concessionaire_id="conc-1",
-            concessionaire_name="Concessionaire 1",
             operator_id="op-1",
             operator_name="Operator 1",
             nom_start_time=datetime(2026, 5, 24, 8, 0, tzinfo=UTC),
@@ -211,9 +211,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operation_day_date=operation_day,
             trip_id="trip-existing",
             route_id="route-1",
-            route_name="Route 1",
-            concessionaire_id="conc-1",
-            concessionaire_name="Concessionaire 1",
             operator_id="op-1",
             operator_name="Operator 1",
             nom_start_time=datetime(2026, 5, 26, 8, 0, tzinfo=UTC),
@@ -246,9 +243,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operation_day_date=operation_day,
             trip_id="trip-existing",
             route_id="route-1",
-            route_name="Route 1",
-            concessionaire_id="conc-1",
-            concessionaire_name="Concessionaire 1",
             operator_id="op-1",
             operator_name="Operator 1",
             nom_start_time=datetime(2026, 5, 26, 8, 0, tzinfo=UTC),
@@ -291,81 +285,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual("SCHEDULED", repository.nominal_stop_times[0].schedule_relationship)
 
-    async def test_nominal_trip_insert_corrects_route_name_set_by_realtime_pipeline(self) -> None:
-        """Nominal import must correct route_name that was set to route_id by the realtime pipeline.
-
-        When the realtime pipeline inserts a trip before the nominal data arrives, it sets
-        route_name=route_id as a placeholder.  The subsequent nominal import run must update
-        the route metadata (route_id, route_name, concessionaire, operator, nom_* fields)
-        while leaving the realtime fields (act_*, schedule_relationship) untouched.
-        """
-        repository = RecordingRepository()
-        service = LoadingService(repository=repository)
-
-        operation_day = date(2026, 5, 26)
-        realtime_start = datetime(2026, 5, 26, 8, 3, tzinfo=UTC)
-
-        # Simulate what the realtime pipeline inserts when no nominal row exists yet:
-        # route_name is set to the raw route_id value.
-        realtime_inserted_trip = TripRecord(
-            operation_day_date=operation_day,
-            trip_id="trip-rt-first",
-            route_id="RT-ROUTE-99",
-            route_name="RT-ROUTE-99",  # placeholder — set to route_id by realtime pipeline
-            operator_id=None,
-            operator_name=None,
-            act_start_time=realtime_start,
-            schedule_relationship="SCHEDULED",
-        )
-        repository.nominal_trips = [realtime_inserted_trip]
-
-        # Nominal pipeline now arrives with the correct human-readable route name.
-        nominal_trip = TripRecord(
-            operation_day_date=operation_day,
-            trip_id="trip-rt-first",
-            route_id="RT-ROUTE-99",
-            route_name="Line 99 — City Express",
-            concessionaire_id="conc-1",
-            concessionaire_name="Concessionaire 1",
-            operator_id="op-1",
-            operator_name="Operator 1",
-            nom_start_time=datetime(2026, 5, 26, 8, 0, tzinfo=UTC),
-            nom_end_time=datetime(2026, 5, 26, 9, 0, tzinfo=UTC),
-            act_start_time=None,
-            act_end_time=None,
-            nom_start_stop_id="A",
-            nom_end_stop_id="B",
-            nom_total_distance=20.0,
-        )
-        nominal_stop_time = StopTimeRecord(
-            operation_day_date=operation_day,
-            trip_id="trip-rt-first",
-            stop_id="A",
-            distance_from_start=0.0,
-            nom_arrival_time=datetime(2026, 5, 26, 8, 0, tzinfo=UTC),
-            nom_departure_time=datetime(2026, 5, 26, 8, 1, tzinfo=UTC),
-            act_arrival_time=None,
-            act_departure_time=None,
-            stop_sequence=1,
-        )
-
-        await service.load_nominal_trip_with_stop_times(
-            instance_id="demo",
-            trip=nominal_trip,
-            stop_times=[nominal_stop_time],
-        )
-
-        # The route_name must now contain the correct human-readable name, not the route_id.
-        self.assertEqual(1, len(repository.nominal_trips))
-        self.assertEqual("Line 99 — City Express", repository.nominal_trips[0].route_name)
-        self.assertEqual("Concessionaire 1", repository.nominal_trips[0].concessionaire_name)
-        self.assertEqual("op-1", repository.nominal_trips[0].operator_id)
-        self.assertEqual(datetime(2026, 5, 26, 8, 0, tzinfo=UTC), repository.nominal_trips[0].nom_start_time)
-
-        # The realtime enrichment on the trip must still be intact.
-        self.assertEqual(realtime_start, repository.nominal_trips[0].act_start_time)
-        self.assertEqual("SCHEDULED", repository.nominal_trips[0].schedule_relationship)
-
     async def test_nominal_batch_preserves_realtime_fields_on_conflict(self) -> None:
         """load_nominal_trips_batch and load_nominal_stop_times_batch must preserve act_* fields.
 
@@ -384,7 +303,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operation_day_date=operation_day,
             trip_id="trip-batch",
             route_id="route-1",
-            route_name="route-1",  # wrong — as if realtime pipeline inserted it first
             operator_id=None,
             operator_name=None,
             act_start_time=datetime(2026, 5, 26, 8, 3, tzinfo=UTC),
@@ -410,9 +328,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operation_day_date=operation_day,
             trip_id="trip-batch",
             route_id="route-1",
-            route_name="Correct Route Name",
-            concessionaire_id="conc-1",
-            concessionaire_name="Concessionaire 1",
             operator_id="op-1",
             operator_name="Operator 1",
             nom_start_time=datetime(2026, 5, 26, 8, 0, tzinfo=UTC),
@@ -438,9 +353,8 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
         await service.load_nominal_trips_batch(instance_id="demo", trips=[nominal_trip])
         await service.load_nominal_stop_times_batch(instance_id="demo", stop_times=[nominal_stop_time])
 
-        # Route metadata must have been updated.
-        self.assertEqual("Correct Route Name", repository.nominal_trips[0].route_name)
-        self.assertEqual("Concessionaire 1", repository.nominal_trips[0].concessionaire_name)
+        # Route FK and nom_* fields must have been updated.
+        self.assertEqual("route-1", repository.nominal_trips[0].route_id)
         self.assertEqual(datetime(2026, 5, 26, 8, 0, tzinfo=UTC), repository.nominal_trips[0].nom_start_time)
 
         # Realtime fields must remain untouched.
@@ -469,7 +383,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operation_day_date=now.date(),
             trip_id="trip-1",
             route_id="route-1",
-            route_name="Route 1",
             operator_id="op-1",
             operator_name="Operator 1",
         )
@@ -530,7 +443,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operation_day_date=now.date(),
             trip_id="trip-2",
             route_id="route-1",
-            route_name="Route 1",
             operator_id="op-1",
             operator_name="Operator 1",
         )
@@ -587,7 +499,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operation_day_date=now.date(),
             trip_id="trip-3",
             route_id="route-1",
-            route_name="Route 1",
             operator_id=None,
             operator_name=None,
         )
@@ -668,7 +579,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operation_day_date=now.date(),
             trip_id="trip-4",
             route_id="route-1",
-            route_name="Route 1",
             operator_id=None,
             operator_name=None,
         )
@@ -743,7 +653,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operation_day_date=now.date(),
             trip_id="unknown-trip",
             route_id="route-1",
-            route_name="Route 1",
             operator_id=None,
             operator_name=None,
             schedule_relationship="SCHEDULED",
@@ -783,7 +692,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operation_day_date=now.date(),
             trip_id="added-trip",
             route_id="route-X",
-            route_name="route-X",
             operator_id=None,
             operator_name=None,
             schedule_relationship="ADDED",
@@ -842,7 +750,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operation_day_date=op_day,
             trip_id="feed-T1",
             route_id="route-1",
-            route_name="route-1",
             operator_id=None,
             operator_name=None,
             schedule_relationship="SCHEDULED",
@@ -883,7 +790,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operation_day_date=now.date(),
             trip_id="feed-T2",
             route_id="route-2",
-            route_name="route-2",
             operator_id=None,
             operator_name=None,
             schedule_relationship="SCHEDULED",
@@ -922,7 +828,6 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operation_day_date=now.date(),
             trip_id="feed-T3",
             route_id="route-3",
-            route_name="route-3",
             operator_id=None,
             operator_name=None,
             schedule_relationship="SCHEDULED",

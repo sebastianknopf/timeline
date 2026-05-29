@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Protocol
 
-from ..loading.models import StopRecord, StopTimeRecord, TripRecord
+from ..loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
 
 
 class TimelineRepositoryInterface(Protocol):
@@ -13,6 +13,17 @@ class TimelineRepositoryInterface(Protocol):
         stops: list[StopRecord],
     ) -> None:
         """Upsert nominal stops for one instance."""
+
+    async def insert_nominal_routes(
+        self,
+        instance_id: str,
+        routes: list[RouteRecord],
+    ) -> None:
+        """Upsert nominal routes for one instance.
+
+        On conflict (same instance_id, route_id) the route metadata is refreshed so that
+        subsequent nominal pipeline runs can correct route names and concessionaire data.
+        """
 
     async def upsert_nominal_trips(
         self,

@@ -6,11 +6,11 @@ from datetime import date
 from typing import Callable, TypeVar
 
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from ..database.models import StopDimension, StopTimeFact, TripDimension
-from ..loading.models import StopRecord, StopTimeRecord, TripRecord
+from ..database.models import RouteDimension, StopDimension, StopTimeFact, TripDimension
+from ..loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
 from .intf_timeline_repository import TimelineRepositoryInterface
 
 
@@ -19,7 +19,8 @@ from .intf_timeline_repository import TimelineRepositoryInterface
 # Each type's batch size is floor(50_000 / params_per_row), capped at STOP_TIME_UPSERT_BATCH_SIZE.
 STOP_TIME_UPSERT_BATCH_SIZE = 5000  # 10 params/row; 5_000 * 10 = 50,000 params per batch
 STOP_UPSERT_BATCH_SIZE = 5000       # 5 params/row;  floor(50_000 / 5) = 10_000 → capped at 5_000
-TRIP_UPSERT_BATCH_SIZE = 2777       # 18 params/row; floor(50_000 / 18) = 2_777
+ROUTE_UPSERT_BATCH_SIZE = 7142      # 7 params/row;  floor(50_000 / 7) = 7_142
+TRIP_UPSERT_BATCH_SIZE = 2941       # 17 params/row; floor(50_000 / 17) = 2_941
 
 TRecord = TypeVar("TRecord")
 
@@ -39,6 +40,9 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
 
     async def upsert_nominal_stops(self, instance_id: str, stops: list[StopRecord]) -> None:
         await asyncio.to_thread(self._upsert_nominal_stops_sync, instance_id, stops)
+
+    async def insert_nominal_routes(self, instance_id: str, routes: list[RouteRecord]) -> None:
+        await asyncio.to_thread(self._insert_nominal_routes_sync, instance_id, routes)
 
     async def upsert_nominal_trips(self, instance_id: str, trips: list[TripRecord]) -> None:
         await asyncio.to_thread(self._upsert_nominal_trips_sync, instance_id, trips)
@@ -110,6 +114,40 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
             scheduled_start_time_str,
         )
 
+    def _insert_nominal_routes_sync(self, instance_id: str, routes: list[RouteRecord]) -> None:
+        if not routes:
+            return
+
+        table = RouteDimension.__table__
+
+        with self._session_factory() as session:
+            with session.begin():
+                for routes_chunk in _chunked_records(routes, ROUTE_UPSERT_BATCH_SIZE):
+                    rows = [
+                        {
+                            "instance_id": instance_id,
+                            "route_id": route.route_id,
+                            "route_name": route.route_name,
+                            "concessionaire_id": route.concessionaire_id,
+                            "concessionaire_name": route.concessionaire_name,
+                            "operator_id": route.operator_id,
+                            "operator_name": route.operator_name,
+                        }
+                        for route in routes_chunk
+                    ]
+                    insert_stmt = postgresql_insert(table).values(rows)
+                    upsert_stmt = insert_stmt.on_conflict_do_update(
+                        index_elements=["instance_id", "route_id"],
+                        set_={
+                            "route_name": insert_stmt.excluded.route_name,
+                            "concessionaire_id": insert_stmt.excluded.concessionaire_id,
+                            "concessionaire_name": insert_stmt.excluded.concessionaire_name,
+                            "operator_id": insert_stmt.excluded.operator_id,
+                            "operator_name": insert_stmt.excluded.operator_name,
+                        },
+                    )
+                    session.execute(upsert_stmt)
+
     def _upsert_nominal_stops_sync(self, instance_id: str, stops: list[StopRecord]) -> None:
         if not stops:
             return
@@ -155,7 +193,6 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                         index_elements=["instance_id", "operation_day_date", "trip_id"],
                         set_={
                             "route_id": insert_stmt.excluded.route_id,
-                            "route_name": insert_stmt.excluded.route_name,
                             "concessionaire_id": insert_stmt.excluded.concessionaire_id,
                             "concessionaire_name": insert_stmt.excluded.concessionaire_name,
                             "operator_id": insert_stmt.excluded.operator_id,
@@ -225,9 +262,9 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                 for trips_chunk in _chunked_records(trips, TRIP_UPSERT_BATCH_SIZE):
                     rows = [self._trip_values(instance_id, trip) for trip in trips_chunk]
                     insert_stmt = postgresql_insert(table).values(rows)
-                    # On conflict: refresh route metadata and all nom_* fields so that a
+                    # On conflict: refresh route FK and all nom_* fields so that a
                     # trip first inserted by the realtime pipeline with placeholder values
-                    # (e.g. route_name = route_id) is corrected by the nominal import.
+                    # is corrected by the nominal import.
                     # act_* fields and schedule_relationship are intentionally excluded
                     # so that realtime enrichment already present in the database is
                     # never overwritten by a nominal import run.
@@ -235,7 +272,6 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                         index_elements=["instance_id", "operation_day_date", "trip_id"],
                         set_={
                             "route_id": insert_stmt.excluded.route_id,
-                            "route_name": insert_stmt.excluded.route_name,
                             "concessionaire_id": insert_stmt.excluded.concessionaire_id,
                             "concessionaire_name": insert_stmt.excluded.concessionaire_name,
                             "operator_id": insert_stmt.excluded.operator_id,
@@ -292,22 +328,26 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                     session.execute(upsert_stmt)
 
     def _upsert_realtime_trip_sync(self, instance_id: str, trip: TripRecord) -> None:
-        trip_values = self._trip_values(instance_id, trip)
+        # Realtime data only updates existing trips loaded by the nominal pipeline.
+        # A pure UPDATE is used intentionally: if no matching dim_trips row exists
+        # the statement is a silent no-op, preventing phantom rows and FK violations.
         table = TripDimension.__table__
 
         with self._session_factory() as session:
             with session.begin():
-                insert_stmt = postgresql_insert(table).values(**trip_values)
-                upsert_stmt = insert_stmt.on_conflict_do_update(
-                    index_elements=["instance_id", "operation_day_date", "trip_id"],
-                    set_={
-                        "act_start_time": insert_stmt.excluded.act_start_time,
-                        "act_end_time": insert_stmt.excluded.act_end_time,
-                        "act_total_distance": insert_stmt.excluded.act_total_distance,
-                        "schedule_relationship": insert_stmt.excluded.schedule_relationship,
-                    },
+                stmt = (
+                    update(table)
+                    .where(table.c.instance_id == instance_id)
+                    .where(table.c.operation_day_date == trip.operation_day_date)
+                    .where(table.c.trip_id == trip.trip_id)
+                    .values(
+                        act_start_time=trip.act_start_time,
+                        act_end_time=trip.act_end_time,
+                        act_total_distance=trip.act_total_distance,
+                        schedule_relationship=trip.schedule_relationship,
+                    )
                 )
-                session.execute(upsert_stmt)
+                session.execute(stmt)
 
     def _upsert_realtime_stop_times_sync(
         self,
@@ -420,7 +460,6 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
             "operation_day_date": trip.operation_day_date,
             "trip_id": trip.trip_id,
             "route_id": trip.route_id,
-            "route_name": trip.route_name,
             "concessionaire_id": trip.concessionaire_id,
             "concessionaire_name": trip.concessionaire_name,
             "operator_id": trip.operator_id,

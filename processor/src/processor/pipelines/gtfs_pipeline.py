@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import structlog
 
 from ..loading.loading_service import LoadingService
-from ..loading.models import StopRecord, StopTimeRecord, TripRecord
+from ..loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
 from ..mapping.intf_mapping_service import MappingServiceInterface
 from ..runtime_config import AuthenticationConfig, InstanceConfig, PipelineConfig
 
@@ -108,6 +108,7 @@ class GtfsNominalPipeline:
         )
         unique_mapped_stops = _deduplicate_stop_records(mapped_stops)
 
+        route_records: dict[str, RouteRecord] = {}
         trip_records: list[TripRecord] = []
         stop_time_records: list[StopTimeRecord] = []
 
@@ -142,6 +143,12 @@ class GtfsNominalPipeline:
             trip_records.append(mapped_trip)
             stop_time_records.extend(mapped_stop_times)
 
+            if mapped_trip.route_id not in route_records:
+                route_records[mapped_trip.route_id] = self._build_route_record(
+                    route=route,
+                    mapped_route_id=mapped_trip.route_id,
+                )
+
         if not trip_records:
             LOGGER.info("gtfs_no_valid_trip_payload", instance_id=instance.id, pipeline_id=pipeline.id)
             return
@@ -154,6 +161,10 @@ class GtfsNominalPipeline:
 
         for stops_chunk in _chunked(unique_mapped_stops, 5000):
             await self._loading_service.load_nominal_stops_batch(instance_id=instance.id, stops=stops_chunk)
+
+        route_record_list = list(route_records.values())
+        for routes_chunk in _chunked(route_record_list, 5000):
+            await self._loading_service.load_nominal_routes_batch(instance_id=instance.id, routes=routes_chunk)
 
         for trips_chunk in _chunked(trip_records, 2000):
             await self._loading_service.load_nominal_trips_batch(instance_id=instance.id, trips=trips_chunk)
@@ -172,6 +183,7 @@ class GtfsNominalPipeline:
             processor_timezone=self._processor_timezone_name,
             source_timezone=source_timezone_name,
             stop_count=len(unique_mapped_stops),
+            route_count=len(route_record_list),
             trip_count=len(trip_records),
             stop_time_count=len(stop_time_records),
         )
@@ -437,6 +449,16 @@ class GtfsNominalPipeline:
 
         return transformed
 
+    def _build_route_record(self, route: _RouteInfo, mapped_route_id: str) -> RouteRecord:
+        return RouteRecord(
+            route_id=mapped_route_id,
+            route_name=route.route_name,
+            concessionaire_id=route.concessionaire_id,
+            concessionaire_name=route.concessionaire_name,
+            operator_id=None,
+            operator_name=None,
+        )
+
     def _build_trip_record(
         self,
         operation_day: date,
@@ -450,9 +472,7 @@ class GtfsNominalPipeline:
             operation_day_date=operation_day,
             trip_id=trip_id,
             route_id=route.route_id,
-            route_name=route.route_name,
-            concessionaire_id=route.concessionaire_id,
-            concessionaire_name=route.concessionaire_name,
+            # concessionaire_* and operator_* are stored at route level (dim_routes).
             operator_id=None,
             operator_name=None,
             nom_start_time=first_stop.nom_arrival_time,
@@ -519,7 +539,7 @@ class _GtfsArchive:
         self._buffer.close()
 
 
-def _chunked(items: list[StopRecord] | list[TripRecord] | list[StopTimeRecord], size: int) -> Iterator[list[object]]:
+def _chunked(items: list[StopRecord] | list[RouteRecord] | list[TripRecord] | list[StopTimeRecord], size: int) -> Iterator[list[object]]:
     iterator = iter(items)
     while True:
         chunk = list(islice(iterator, size))
