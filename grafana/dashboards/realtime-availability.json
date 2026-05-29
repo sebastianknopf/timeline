@@ -18,9 +18,134 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 4,
+  "id": 3,
   "links": [],
+  "liveNow": false,
   "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timeline-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisSoftMax": 100,
+            "axisSoftMin": 0,
+            "fillOpacity": 80,
+            "gradientMode": "hue",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 25
+              },
+              {
+                "color": "yellow",
+                "value": 50
+              },
+              {
+                "color": "green",
+                "value": 75
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.85,
+        "colorByField": "Anteil (%)",
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "orientation": "auto",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "xField": "Linie",
+        "xTickLabelRotation": -45,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timeline-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  routes.route_name AS \"Linie\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship <> 'UNKNOWN'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"Anteil (%)\"\r\nFROM\r\n  dim_trips trips\r\n  INNER JOIN dim_routes routes ON routes.route_id = trips.route_id\r\nWHERE\r\n  operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND trips.instance_id IN (${instance:sqlstring})\r\n  AND COALESCE(\r\n    trips.concessionaire_name,\r\n    routes.concessionaire_name\r\n  ) IN (${concessionaire:sqlstring})\r\n  AND routes.route_name IN (${route:sqlstring})\r\nGROUP BY\r\n  route_name\r\nORDER BY\r\n  regexp_replace(route_name, '\\d', '', 'g'),\r\n  NULLIF(\r\n    regexp_replace(route_name, '\\D', '', 'g'),\r\n    ''\r\n  ) :: INT;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Verfügbarkeit nach Linie in %",
+      "type": "barchart"
+    },
     {
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -38,10 +163,8 @@
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
-            "axisSoftMax": 101,
-            "axisSoftMin": 0,
             "fillOpacity": 80,
-            "gradientMode": "hue",
+            "gradientMode": "none",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
@@ -57,6 +180,7 @@
           },
           "fieldMinMax": false,
           "mappings": [],
+          "max": 100,
           "min": 0,
           "thresholds": {
             "mode": "absolute",
@@ -78,7 +202,7 @@
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#a6b0ba",
+                  "fixedColor": "#dbdee0",
                   "mode": "fixed"
                 }
               }
@@ -135,7 +259,7 @@
         "h": 11,
         "w": 24,
         "x": 0,
-        "y": 0
+        "y": 10
       },
       "id": 1,
       "options": {
@@ -150,7 +274,7 @@
           "showLegend": true
         },
         "orientation": "auto",
-        "showValue": "auto",
+        "showValue": "never",
         "stacking": "normal",
         "text": {
           "valueSize": 12
@@ -160,7 +284,7 @@
           "sort": "asc"
         },
         "xField": "Linie",
-        "xTickLabelRotation": 0,
+        "xTickLabelRotation": -45,
         "xTickLabelSpacing": 0
       },
       "targets": [
@@ -172,7 +296,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\r\n  route_name AS \"Linie\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship = 'SCHEDULED'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"SCHEDULED\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship = 'CANCELLED'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"CANCELLED\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship = 'ADDED'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"ADDED\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship = 'UNKNOWN'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"UNKNOWN\"\r\nFROM\r\n  dim_trips\r\nWHERE\r\n  $__timeFilter(operation_day_date)\r\n  AND instance_id IN (${instance:sqlstring})\r\n  AND concessionaire_name IN (${concessionaire:sqlstring})\r\n  AND route_name IN (${route:sqlstring})\r\nGROUP BY\r\n  route_name\r\nORDER BY\r\n  regexp_replace(route_name, '\\d', '', 'g'),\r\n  NULLIF(\r\n    regexp_replace(route_name, '\\D', '', 'g'),\r\n    ''\r\n  ) :: INT;",
+          "rawSql": "SELECT\r\n  routes.route_name AS \"Linie\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship = 'SCHEDULED'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"SCHEDULED\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship = 'CANCELLED'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"CANCELLED\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship = 'ADDED'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"ADDED\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship = 'UNKNOWN'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"UNKNOWN\"\r\nFROM\r\n  dim_trips trips\r\n  INNER JOIN dim_routes routes ON routes.route_id = trips.route_id\r\nWHERE\r\n  operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND trips.instance_id IN (${instance:sqlstring})\r\n  AND COALESCE(\r\n    trips.concessionaire_name,\r\n    routes.concessionaire_name\r\n  ) IN (${concessionaire:sqlstring})\r\n  AND routes.route_name IN (${route:sqlstring})\r\nGROUP BY\r\n  route_name\r\nORDER BY\r\n  regexp_replace(route_name, '\\d', '', 'g'),\r\n  NULLIF(\r\n    regexp_replace(route_name, '\\D', '', 'g'),\r\n    ''\r\n  ) :: INT;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -240,7 +364,7 @@
       {
         "allValue": "",
         "current": {
-          "selected": false,
+          "selected": true,
           "text": [
             "demo"
           ],
@@ -269,7 +393,7 @@
       {
         "allValue": "",
         "current": {
-          "selected": false,
+          "selected": true,
           "text": [
             "All"
           ],
@@ -281,14 +405,14 @@
           "type": "grafana-postgresql-datasource",
           "uid": "timeline-postgres"
         },
-        "definition": "SELECT DISTINCT concessionaire_name FROM dim_trips",
+        "definition": "SELECT DISTINCT concessionaire_name FROM dim_trips WHERE concessionaire_name IS NOT NULL\nUNION\nSELECT DISTINCT concessionaire_name FROM dim_routes WHERE concessionaire_name IS NOT NULL",
         "hide": 0,
         "includeAll": true,
         "label": "Konzessionär",
         "multi": true,
         "name": "concessionaire",
         "options": [],
-        "query": "SELECT DISTINCT concessionaire_name FROM dim_trips",
+        "query": "SELECT DISTINCT concessionaire_name FROM dim_trips WHERE concessionaire_name IS NOT NULL\nUNION\nSELECT DISTINCT concessionaire_name FROM dim_routes WHERE concessionaire_name IS NOT NULL",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
@@ -298,7 +422,7 @@
       {
         "allValue": "",
         "current": {
-          "selected": false,
+          "selected": true,
           "text": [
             "All"
           ],
@@ -310,14 +434,14 @@
           "type": "grafana-postgresql-datasource",
           "uid": "timeline-postgres"
         },
-        "definition": "SELECT DISTINCT route_name FROM dim_trips",
+        "definition": "SELECT DISTINCT route_name FROM dim_routes",
         "hide": 0,
         "includeAll": true,
         "label": "Linie",
         "multi": true,
         "name": "route",
         "options": [],
-        "query": "SELECT DISTINCT route_name FROM dim_trips",
+        "query": "SELECT DISTINCT route_name FROM dim_routes",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
@@ -327,10 +451,11 @@
     ]
   },
   "time": {
-    "from": "now-6h",
-    "to": "now"
+    "from": "now/d",
+    "to": "now/d"
   },
   "timepicker": {
+    "hidden": false,
     "refresh_intervals": [
       "15m"
     ]
@@ -338,6 +463,6 @@
   "timezone": "browser",
   "title": "Verfügbarkeit Echtzeitdaten",
   "uid": "efn51w25mcum8b",
-  "version": 12,
+  "version": 7,
   "weekStart": ""
 }
