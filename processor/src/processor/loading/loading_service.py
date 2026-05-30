@@ -105,11 +105,39 @@ class LoadingService:
 
         normalized_input = self._apply_nominal_baseline(stop_times=stop_times, nominal_stop_times=nominal_stop_times)
         if not normalized_input:
+            LOGGER.debug(
+                "realtime_trip_discarded_empty_baseline_merge",
+                instance_id=instance_id,
+                trip_id=trip.trip_id,
+                operation_day_date=str(trip.operation_day_date),
+                feed_stop_count=len(stop_times),
+                nominal_stop_count=len(nominal_stop_times),
+            )
             return
 
         normalized_stop_times = self._normalize_realtime_stop_times(normalized_input)
         if not normalized_stop_times:
             return
+
+        explicit_count = sum(
+            1 for s in normalized_input
+            if any(
+                s.stop_sequence == rt.stop_sequence for rt in stop_times
+            )
+        )
+        propagated_count = len(normalized_input) - explicit_count
+
+        LOGGER.debug(
+            "realtime_trip_stop_times_resolved",
+            instance_id=instance_id,
+            trip_id=trip.trip_id,
+            operation_day_date=str(trip.operation_day_date),
+            nominal_stop_count=len(nominal_stop_times),
+            feed_stop_count=len(stop_times),
+            explicit_stop_count=explicit_count,
+            propagated_stop_count=propagated_count,
+            normalized_stop_count=len(normalized_stop_times),
+        )
 
         normalized_trip = self._derive_realtime_trip_fields(
             source_trip=trip,
@@ -213,6 +241,18 @@ class LoadingService:
                     )
                 )
 
+        explicit_count = sum(1 for b in ordered_nominal if realtime_by_sequence.get(b.stop_sequence) is not None)
+        propagated_count = len(merged) - explicit_count
+        skipped_count = len(ordered_nominal) - len(merged)
+
+        LOGGER.debug(
+            "realtime_nominal_baseline_applied",
+            explicit_count=explicit_count,
+            propagated_count=propagated_count,
+            skipped_count=skipped_count,
+            merged_count=len(merged),
+        )
+
         return merged
 
     def _normalize_realtime_stop_times(self, stop_times: list[StopTimeRecord]) -> list[StopTimeRecord]:
@@ -262,26 +302,31 @@ class LoadingService:
         first_stop = ordered_nominal[0]
         last_stop = ordered_nominal[-1]
 
-        realtime_by_sequence = {item.stop_sequence: item for item in normalized_stop_times}
-        realtime_first = realtime_by_sequence.get(first_stop.stop_sequence)
-        realtime_last = realtime_by_sequence.get(last_stop.stop_sequence)
-
         nom_start_time = first_stop.nom_departure_time
         nom_end_time = last_stop.nom_departure_time
 
+        # Use the first and last entries of normalized_stop_times directly instead of
+        # looking up by nominal stop_sequence.  normalized_stop_times is already sorted
+        # by _stop_time_order_key, so index 0 is the earliest and index -1 is the latest
+        # stop with realtime coverage.  This guarantees that act_start_time and
+        # act_end_time always reflect the earliest/latest available realtime data
+        # regardless of schedule_relationship and regardless of whether the nominal
+        # boundary stops appear in the realtime feed.
+        rt_first = normalized_stop_times[0]
+        rt_last = normalized_stop_times[-1]
+
         act_start_time = (
-            realtime_first.act_departure_time
-            if realtime_first is not None and realtime_first.act_departure_time is not None
+            rt_first.act_departure_time
+            if rt_first.act_departure_time is not None
             else nom_start_time
         )
 
-        end_candidate = (
-            realtime_last.act_departure_time
-            if realtime_last is not None and realtime_last.act_departure_time is not None
-            else nom_end_time
-        )
-        now = datetime.now(nom_end_time.tzinfo)
-        act_end_time = end_candidate if end_candidate <= now else None
+        if rt_last.act_arrival_time is not None:
+            act_end_time = rt_last.act_arrival_time
+        elif rt_last.act_departure_time is not None:
+            act_end_time = rt_last.act_departure_time
+        else:
+            act_end_time = nom_end_time
 
         return replace(
             source_trip,

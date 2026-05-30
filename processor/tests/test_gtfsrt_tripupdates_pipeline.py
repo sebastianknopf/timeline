@@ -457,7 +457,7 @@ class GtfsRtTripUpdatesPipelineTests(unittest.IsolatedAsyncioTestCase):
         trip = repository.realtime_trips[0]
 
         self.assertEqual(first_departure.replace(microsecond=0), trip.act_start_time)
-        self.assertIsNone(trip.act_end_time)
+        self.assertEqual(last_arrival.replace(microsecond=0), trip.act_end_time)
 
 
     async def test_delay_propagates_forward_between_explicit_updates(self) -> None:
@@ -739,6 +739,262 @@ class GtfsRtTripUpdatesPipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(nom_s3_arr + timedelta(seconds=180), by_seq[3].act_arrival_time)
         self.assertEqual("SCHEDULED", by_seq[3].schedule_relationship)
 
+    async def test_act_end_time_written_for_future_last_stop(self) -> None:
+        """act_end_time is written immediately when realtime data for the last stop arrives, even when that stop is in the future."""
+        pipeline = PipelineConfig(
+            id="realtime-main",
+            name="gtfsrt-tripupdates",
+            type="realtime",
+            cron="*/1 * * * *",
+            endpoint="https://example.test/realtime",
+        )
+        instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+        now = datetime.now(UTC)
+        first_departure = now - timedelta(minutes=5)
+        last_arrival = now + timedelta(minutes=30)
+
+        payload = _build_feed_payload(
+            trip_id="T-FUTURE-END",
+            route_id="R-FUTURE",
+            start_date=now.strftime("%Y%m%d"),
+            stop_updates=(
+                _StopUpdateInput(
+                    stop_id="S1",
+                    stop_sequence=1,
+                    departure_timestamp=first_departure,
+                ),
+                _StopUpdateInput(
+                    stop_id="S2",
+                    stop_sequence=2,
+                    arrival_timestamp=last_arrival,
+                ),
+            ),
+        )
+
+        mapping_service = MappingService()
+        mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+        repository = RecordingRepository()
+        repository.nominal_stop_times = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="T-FUTURE-END",
+                stop_id="S1",
+                distance_from_start=0.0,
+                nom_arrival_time=first_departure,
+                nom_departure_time=first_departure,
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="T-FUTURE-END",
+                stop_id="S2",
+                distance_from_start=3.0,
+                nom_arrival_time=last_arrival,
+                nom_departure_time=last_arrival,
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+        ]
+        loading_service = LoadingService(repository=repository)
+
+        gtfsrt_pipeline = InMemoryGtfsRtTripUpdatesPipeline(
+            payload=payload,
+            loading_service=loading_service,
+            mapping_service=mapping_service,
+        )
+
+        await gtfsrt_pipeline.execute(instance=instance, pipeline=pipeline)
+
+        self.assertEqual(1, len(repository.realtime_trips))
+        trip = repository.realtime_trips[0]
+
+        self.assertEqual(first_departure.replace(microsecond=0), trip.act_start_time)
+        self.assertIsNotNone(trip.act_end_time)
+        self.assertEqual(last_arrival.replace(microsecond=0), trip.act_end_time)
+
+    async def test_act_end_time_prefers_arrival_over_departure_at_last_stop(self) -> None:
+        """act_end_time uses arrival of last stop when both arrival and departure are present."""
+        pipeline = PipelineConfig(
+            id="realtime-main",
+            name="gtfsrt-tripupdates",
+            type="realtime",
+            cron="*/1 * * * *",
+            endpoint="https://example.test/realtime",
+        )
+        instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+        now = datetime.now(UTC)
+        last_arrival = now - timedelta(minutes=5)
+        last_departure = now - timedelta(minutes=2)
+
+        payload = _build_feed_payload(
+            trip_id="T-ARR-PREF",
+            route_id="R-ARR",
+            start_date=now.strftime("%Y%m%d"),
+            stop_updates=(
+                _StopUpdateInput(
+                    stop_id="S1",
+                    stop_sequence=1,
+                    departure_timestamp=now - timedelta(minutes=20),
+                ),
+                _StopUpdateInput(
+                    stop_id="S2",
+                    stop_sequence=2,
+                    arrival_timestamp=last_arrival,
+                    departure_timestamp=last_departure,
+                ),
+            ),
+        )
+
+        mapping_service = MappingService()
+        mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+        repository = RecordingRepository()
+        first_dep = now - timedelta(minutes=20)
+        repository.nominal_stop_times = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="T-ARR-PREF",
+                stop_id="S1",
+                distance_from_start=0.0,
+                nom_arrival_time=first_dep,
+                nom_departure_time=first_dep,
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="T-ARR-PREF",
+                stop_id="S2",
+                distance_from_start=4.0,
+                nom_arrival_time=last_arrival,
+                nom_departure_time=last_departure,
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+        ]
+        loading_service = LoadingService(repository=repository)
+
+        gtfsrt_pipeline = InMemoryGtfsRtTripUpdatesPipeline(
+            payload=payload,
+            loading_service=loading_service,
+            mapping_service=mapping_service,
+        )
+
+        await gtfsrt_pipeline.execute(instance=instance, pipeline=pipeline)
+
+        self.assertEqual(1, len(repository.realtime_trips))
+        trip = repository.realtime_trips[0]
+
+        # act_end_time must use arrival, not departure, for the last stop.
+        self.assertEqual(last_arrival.replace(microsecond=0), trip.act_end_time)
+
+    async def test_act_start_and_end_use_first_and_last_normalized_stop_regardless_of_schedule_relationship(self) -> None:
+        """act_start_time and act_end_time use the first/last normalized stop regardless of schedule_relationship.
+
+        The nominal first stop (S1) has no realtime coverage (no update, no preceding
+        propagation), so it is absent from normalized_stop_times.  The nominal last stop
+        (S3) is covered only by propagation from S2 and therefore carries
+        schedule_relationship = SCHEDULED.  Both act_start_time and act_end_time must
+        still be derived from whatever realtime data is present.
+        """
+        pipeline = PipelineConfig(
+            id="realtime-main",
+            name="gtfsrt-tripupdates",
+            type="realtime",
+            cron="*/1 * * * *",
+            endpoint="https://example.test/realtime",
+        )
+        instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+        now = datetime.now(UTC)
+        nom_base = now + timedelta(hours=2)
+        delay_s = 180
+
+        payload = _build_feed_payload(
+            trip_id="T-MID-ONLY",
+            route_id="R-MID",
+            start_date=nom_base.strftime("%Y%m%d"),
+            stop_updates=(
+                # Only S2 is in the feed; S1 has no preceding update, S3 gets propagated.
+                _StopUpdateInput(
+                    stop_id="S2",
+                    stop_sequence=2,
+                    arrival_delay_seconds=delay_s,
+                    departure_delay_seconds=delay_s,
+                ),
+            ),
+        )
+
+        mapping_service = MappingService()
+        mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+        repository = RecordingRepository()
+        nom_s1_dep = nom_base + timedelta(minutes=5)
+        nom_s2_arr = nom_base + timedelta(minutes=20)
+        nom_s2_dep = nom_base + timedelta(minutes=21)
+        nom_s3_arr = nom_base + timedelta(minutes=35)
+        nom_s3_dep = nom_base + timedelta(minutes=36)
+        repository.nominal_stop_times = [
+            StopTimeRecord(
+                operation_day_date=nom_base.date(),
+                trip_id="T-MID-ONLY",
+                stop_id="S1",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base + timedelta(minutes=4),
+                nom_departure_time=nom_s1_dep,
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=nom_base.date(),
+                trip_id="T-MID-ONLY",
+                stop_id="S2",
+                distance_from_start=5.0,
+                nom_arrival_time=nom_s2_arr,
+                nom_departure_time=nom_s2_dep,
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+            StopTimeRecord(
+                operation_day_date=nom_base.date(),
+                trip_id="T-MID-ONLY",
+                stop_id="S3",
+                distance_from_start=10.0,
+                nom_arrival_time=nom_s3_arr,
+                nom_departure_time=nom_s3_dep,
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=3,
+            ),
+        ]
+        loading_service = LoadingService(repository=repository)
+
+        gtfsrt_pipeline = InMemoryGtfsRtTripUpdatesPipeline(
+            payload=payload,
+            loading_service=loading_service,
+            mapping_service=mapping_service,
+        )
+
+        await gtfsrt_pipeline.execute(instance=instance, pipeline=pipeline)
+
+        self.assertEqual(1, len(repository.realtime_trips))
+        trip = repository.realtime_trips[0]
+
+        # S1 has no realtime data and no preceding propagation → absent from normalized.
+        # act_start_time must use S2 (first in normalized), not S1's nominal departure.
+        expected_start = (nom_s2_dep + timedelta(seconds=delay_s))
+        self.assertEqual(expected_start, trip.act_start_time)
+
+        # S3 is propagated (SCHEDULED) from S2 → act_end_time uses S3's arrival.
+        expected_end = (nom_s3_arr + timedelta(seconds=delay_s))
+        self.assertEqual(expected_end, trip.act_end_time)
 
     async def test_added_trip_is_discarded_and_not_loaded(self) -> None:
         """ADDED trips must be completely discarded at the pipeline level."""

@@ -427,7 +427,7 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(1, len(repository.realtime_trips))
         self.assertEqual(first_act_departure, repository.realtime_trips[0].act_start_time)
-        self.assertIsNone(repository.realtime_trips[0].act_end_time)
+        self.assertEqual(last_act_arrival, repository.realtime_trips[0].act_end_time)
 
     async def test_realtime_delay_fallback_and_trip_end_population(self) -> None:
         repository = RecordingRepository()
@@ -483,7 +483,7 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(1, len(repository.realtime_trips))
         self.assertEqual(first_nom_departure, repository.realtime_trips[0].act_start_time)
-        self.assertEqual(last_nom_departure + timedelta(seconds=-300), repository.realtime_trips[0].act_end_time)
+        self.assertEqual(last_nom_arrival + timedelta(seconds=300), repository.realtime_trips[0].act_end_time)
 
     async def test_realtime_syncs_arrival_and_departure_when_one_side_missing(self) -> None:
         repository = RecordingRepository()
@@ -642,7 +642,576 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(2, len(repository.realtime_stop_times))
         self.assertEqual(first_nom_departure + timedelta(minutes=1), repository.realtime_trips[0].act_start_time)
-        self.assertEqual(last_nom_departure + timedelta(minutes=2), repository.realtime_trips[0].act_end_time)
+        self.assertEqual(last_nom_arrival + timedelta(minutes=2), repository.realtime_trips[0].act_end_time)
+
+    async def test_act_end_time_uses_arrival_when_both_available_for_last_stop(self) -> None:
+        """act_end_time prefers act_arrival_time over act_departure_time on the last stop."""
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        now = datetime.now(UTC)
+        nom_base = now - timedelta(minutes=30)
+
+        trip = TripRecord(
+            operation_day_date=now.date(),
+            trip_id="trip-arr",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+        )
+        baseline = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-arr",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-arr",
+                stop_id="B",
+                distance_from_start=5.0,
+                nom_arrival_time=nom_base + timedelta(minutes=20),
+                nom_departure_time=nom_base + timedelta(minutes=21),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+        ]
+        repository.nominal_stop_times = baseline
+
+        last_act_arrival = nom_base + timedelta(minutes=22)
+        last_act_departure = nom_base + timedelta(minutes=25)
+        realtime = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-arr",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=nom_base,
+                act_departure_time=nom_base + timedelta(minutes=1),
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-arr",
+                stop_id="B",
+                distance_from_start=5.0,
+                nom_arrival_time=nom_base + timedelta(minutes=20),
+                nom_departure_time=nom_base + timedelta(minutes=21),
+                act_arrival_time=last_act_arrival,
+                act_departure_time=last_act_departure,
+                stop_sequence=2,
+            ),
+        ]
+
+        await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=realtime,
+        )
+
+        self.assertEqual(1, len(repository.realtime_trips))
+        self.assertEqual(last_act_arrival, repository.realtime_trips[0].act_end_time)
+
+    async def test_act_end_time_falls_back_to_departure_when_arrival_absent_for_last_stop(self) -> None:
+        """act_end_time falls back to act_departure_time when act_arrival_time is absent on the last stop."""
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        now = datetime.now(UTC)
+        nom_base = now - timedelta(minutes=30)
+
+        trip = TripRecord(
+            operation_day_date=now.date(),
+            trip_id="trip-dep-fb",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+        )
+        baseline = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-dep-fb",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-dep-fb",
+                stop_id="B",
+                distance_from_start=5.0,
+                nom_arrival_time=nom_base + timedelta(minutes=20),
+                nom_departure_time=nom_base + timedelta(minutes=21),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+        ]
+        repository.nominal_stop_times = baseline
+
+        last_act_departure = nom_base + timedelta(minutes=23)
+        realtime = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-dep-fb",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=nom_base,
+                act_departure_time=nom_base + timedelta(minutes=1),
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-dep-fb",
+                stop_id="B",
+                distance_from_start=5.0,
+                nom_arrival_time=nom_base + timedelta(minutes=20),
+                nom_departure_time=nom_base + timedelta(minutes=21),
+                act_arrival_time=None,
+                act_departure_time=last_act_departure,
+                stop_sequence=2,
+            ),
+        ]
+
+        await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=realtime,
+        )
+
+        self.assertEqual(1, len(repository.realtime_trips))
+        self.assertEqual(last_act_departure, repository.realtime_trips[0].act_end_time)
+
+    async def test_act_end_time_written_for_future_trip_last_stop(self) -> None:
+        """act_end_time is written even when the last stop time is in the future."""
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        now = datetime.now(UTC)
+        future_base = now + timedelta(hours=2)
+
+        trip = TripRecord(
+            operation_day_date=now.date(),
+            trip_id="trip-future",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+        )
+        baseline = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-future",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=future_base,
+                nom_departure_time=future_base + timedelta(minutes=1),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-future",
+                stop_id="B",
+                distance_from_start=10.0,
+                nom_arrival_time=future_base + timedelta(minutes=30),
+                nom_departure_time=future_base + timedelta(minutes=31),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+        ]
+        repository.nominal_stop_times = baseline
+
+        last_act_arrival = future_base + timedelta(minutes=32)
+        realtime = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-future",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=future_base,
+                nom_departure_time=future_base + timedelta(minutes=1),
+                act_arrival_time=None,
+                act_departure_time=future_base + timedelta(minutes=1),
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-future",
+                stop_id="B",
+                distance_from_start=10.0,
+                nom_arrival_time=future_base + timedelta(minutes=30),
+                nom_departure_time=future_base + timedelta(minutes=31),
+                act_arrival_time=last_act_arrival,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+        ]
+
+        await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=realtime,
+        )
+
+        self.assertEqual(1, len(repository.realtime_trips))
+        self.assertIsNotNone(repository.realtime_trips[0].act_end_time)
+        self.assertEqual(last_act_arrival, repository.realtime_trips[0].act_end_time)
+
+    async def test_act_start_time_uses_departure_and_falls_back_to_nom_departure(self) -> None:
+        """act_start_time uses act_departure_time from the first stop; falls back to nom_departure_time."""
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        now = datetime.now(UTC)
+        nom_base = now + timedelta(hours=1)
+
+        trip = TripRecord(
+            operation_day_date=now.date(),
+            trip_id="trip-start",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+        )
+        baseline = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-start",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-start",
+                stop_id="B",
+                distance_from_start=8.0,
+                nom_arrival_time=nom_base + timedelta(minutes=15),
+                nom_departure_time=nom_base + timedelta(minutes=16),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+        ]
+        repository.nominal_stop_times = baseline
+
+        first_act_departure = nom_base + timedelta(minutes=3)
+        realtime = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-start",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=nom_base + timedelta(minutes=2),
+                act_departure_time=first_act_departure,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-start",
+                stop_id="B",
+                distance_from_start=8.0,
+                nom_arrival_time=nom_base + timedelta(minutes=15),
+                nom_departure_time=nom_base + timedelta(minutes=16),
+                act_arrival_time=nom_base + timedelta(minutes=17),
+                act_departure_time=nom_base + timedelta(minutes=18),
+                stop_sequence=2,
+            ),
+        ]
+
+        await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=realtime,
+        )
+
+        self.assertEqual(1, len(repository.realtime_trips))
+        self.assertEqual(first_act_departure, repository.realtime_trips[0].act_start_time)
+
+    async def test_act_start_time_falls_back_to_nom_start_when_no_realtime_departure(self) -> None:
+        """act_start_time falls back to nom_departure_time of first stop when no realtime departure is available."""
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        now = datetime.now(UTC)
+        nom_base = now + timedelta(hours=1)
+
+        trip = TripRecord(
+            operation_day_date=now.date(),
+            trip_id="trip-start-fb",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+        )
+        baseline = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-start-fb",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-start-fb",
+                stop_id="B",
+                distance_from_start=8.0,
+                nom_arrival_time=nom_base + timedelta(minutes=15),
+                nom_departure_time=nom_base + timedelta(minutes=16),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+        ]
+        repository.nominal_stop_times = baseline
+
+        # Only arrival_delay for first stop — no departure information.
+        realtime = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-start-fb",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=nom_base + timedelta(minutes=2),
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-start-fb",
+                stop_id="B",
+                distance_from_start=8.0,
+                nom_arrival_time=nom_base + timedelta(minutes=15),
+                nom_departure_time=nom_base + timedelta(minutes=16),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+        ]
+
+        await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=realtime,
+        )
+
+        self.assertEqual(1, len(repository.realtime_trips))
+        # Since act_arrival and act_departure are mirrored when only one side is present,
+        # act_departure_time of the first stop will equal act_arrival_time.
+        self.assertEqual(nom_base + timedelta(minutes=2), repository.realtime_trips[0].act_start_time)
+
+    async def test_act_start_time_uses_first_normalized_stop_not_first_nominal(self) -> None:
+        """act_start_time uses the first stop in normalized_stop_times even when that differs from the first nominal stop.
+
+        When the nominal first stop (S1) has no realtime coverage and no preceding update
+        to propagate from, it is absent from normalized_stop_times.  act_start_time must
+        be derived from the first stop that IS covered (S2), regardless of its
+        schedule_relationship.
+        """
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        now = datetime.now(UTC)
+        nom_base = now + timedelta(hours=1)
+        nom_s1_arr = nom_base
+        nom_s1_dep = nom_base + timedelta(minutes=1)
+        nom_s2_arr = nom_base + timedelta(minutes=15)
+        nom_s2_dep = nom_base + timedelta(minutes=16)
+        nom_s3_arr = nom_base + timedelta(minutes=30)
+        nom_s3_dep = nom_base + timedelta(minutes=31)
+
+        trip = TripRecord(
+            operation_day_date=now.date(),
+            trip_id="trip-mid-start",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+        )
+        baseline = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-mid-start",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_s1_arr,
+                nom_departure_time=nom_s1_dep,
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-mid-start",
+                stop_id="B",
+                distance_from_start=5.0,
+                nom_arrival_time=nom_s2_arr,
+                nom_departure_time=nom_s2_dep,
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-mid-start",
+                stop_id="C",
+                distance_from_start=10.0,
+                nom_arrival_time=nom_s3_arr,
+                nom_departure_time=nom_s3_dep,
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=3,
+            ),
+        ]
+        repository.nominal_stop_times = baseline
+
+        s2_act_departure = nom_s2_dep + timedelta(minutes=2)
+        # Only S2 is covered by the feed (no S1 update, no S3 update).
+        # S1 has no preceding update and will be absent from normalized_stop_times.
+        # S3 will be propagated from S2.
+        realtime = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-mid-start",
+                stop_id="B",
+                distance_from_start=5.0,
+                nom_arrival_time=nom_s2_arr,
+                nom_departure_time=nom_s2_dep,
+                act_arrival_time=nom_s2_arr + timedelta(minutes=2),
+                act_departure_time=s2_act_departure,
+                stop_sequence=2,
+            ),
+        ]
+
+        await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=realtime,
+        )
+
+        self.assertEqual(1, len(repository.realtime_trips))
+        # act_start_time must use S2's departure (first in normalized), not S1's nominal departure.
+        self.assertEqual(s2_act_departure, repository.realtime_trips[0].act_start_time)
+
+    async def test_act_end_time_uses_last_normalized_stop_not_last_nominal(self) -> None:
+        """act_end_time is derived from the last stop in normalized_stop_times regardless of its schedule_relationship.
+
+        When the feed delivers an update only for a middle stop, delay propagation fills
+        the subsequent nominal stops as SCHEDULED.  act_end_time must use the propagated
+        last stop's arrival time, not fall back to nom_end_time.
+        """
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        now = datetime.now(UTC)
+        nom_base = now - timedelta(hours=1)
+        nom_s1_arr = nom_base
+        nom_s1_dep = nom_base + timedelta(minutes=1)
+        nom_s2_arr = nom_base + timedelta(minutes=15)
+        nom_s2_dep = nom_base + timedelta(minutes=16)
+        nom_s3_arr = nom_base + timedelta(minutes=30)
+        nom_s3_dep = nom_base + timedelta(minutes=31)
+
+        trip = TripRecord(
+            operation_day_date=now.date(),
+            trip_id="trip-prop-end",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+        )
+        baseline = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-prop-end",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_s1_arr,
+                nom_departure_time=nom_s1_dep,
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-prop-end",
+                stop_id="B",
+                distance_from_start=5.0,
+                nom_arrival_time=nom_s2_arr,
+                nom_departure_time=nom_s2_dep,
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-prop-end",
+                stop_id="C",
+                distance_from_start=10.0,
+                nom_arrival_time=nom_s3_arr,
+                nom_departure_time=nom_s3_dep,
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=3,
+            ),
+        ]
+        repository.nominal_stop_times = baseline
+
+        delay_s = 120
+        # Only S1 delivered with delay; S2 and S3 will be propagated as SCHEDULED.
+        realtime = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-prop-end",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_s1_arr,
+                nom_departure_time=nom_s1_dep,
+                act_arrival_time=None,
+                act_departure_time=None,
+                arrival_delay_seconds=delay_s,
+                departure_delay_seconds=delay_s,
+                stop_sequence=1,
+            ),
+        ]
+
+        await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=realtime,
+        )
+
+        self.assertEqual(1, len(repository.realtime_trips))
+        # S3 is propagated SCHEDULED; act_end_time must use its resolved arrival (nom + delay),
+        # not nom_end_time.
+        expected_act_end = nom_s3_arr + timedelta(seconds=delay_s)
+        self.assertEqual(expected_act_end, repository.realtime_trips[0].act_end_time)
 
     async def test_non_added_trip_without_nominal_data_is_discarded(self) -> None:
         repository = RecordingRepository()
@@ -855,6 +1424,205 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(0, len(repository.realtime_trips))
         self.assertEqual(0, len(repository.realtime_stop_times))
+
+
+    async def test_realtime_propagates_delay_to_nominal_stops_missing_from_feed(self) -> None:
+        """LoadingService must expand nominal stops absent from the realtime feed using the
+        last known effective delay, producing a complete realtime stop-time row for every
+        nominal stop, not only those explicitly reported by the feed.
+
+        Scenario: 4 nominal stops (S1-S4).  The feed delivers S1 (+120 s, absolute) and
+        S3 (+300 s, absolute).  S2 must be propagated with S1's delay (+120 s); S4 must be
+        propagated with S3's delay (+300 s).  This behaviour belongs to the loading service
+        because only it has access to the complete nominal baseline.
+        """
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        op_day = date(2026, 5, 30)
+        nom_base = datetime(2026, 5, 30, 8, 0, tzinfo=UTC)
+
+        nom_s1_arr = nom_base + timedelta(minutes=10)
+        nom_s1_dep = nom_base + timedelta(minutes=11)
+        nom_s2_arr = nom_base + timedelta(minutes=20)
+        nom_s2_dep = nom_base + timedelta(minutes=21)
+        nom_s3_arr = nom_base + timedelta(minutes=30)
+        nom_s3_dep = nom_base + timedelta(minutes=31)
+        nom_s4_arr = nom_base + timedelta(minutes=40)
+        nom_s4_dep = nom_base + timedelta(minutes=41)
+
+        # Nominal baseline — 4 stops.
+        repository.nominal_stop_times = [
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-FILL", stop_id="S1",
+                           distance_from_start=0.0, nom_arrival_time=nom_s1_arr,
+                           nom_departure_time=nom_s1_dep, act_arrival_time=None,
+                           act_departure_time=None, stop_sequence=1),
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-FILL", stop_id="S2",
+                           distance_from_start=2.0, nom_arrival_time=nom_s2_arr,
+                           nom_departure_time=nom_s2_dep, act_arrival_time=None,
+                           act_departure_time=None, stop_sequence=2),
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-FILL", stop_id="S3",
+                           distance_from_start=4.0, nom_arrival_time=nom_s3_arr,
+                           nom_departure_time=nom_s3_dep, act_arrival_time=None,
+                           act_departure_time=None, stop_sequence=3),
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-FILL", stop_id="S4",
+                           distance_from_start=6.0, nom_arrival_time=nom_s4_arr,
+                           nom_departure_time=nom_s4_dep, act_arrival_time=None,
+                           act_departure_time=None, stop_sequence=4),
+        ]
+
+        trip = TripRecord(
+            operation_day_date=op_day,
+            trip_id="T-FILL",
+            route_id="R1",
+            operator_id=None,
+            operator_name=None,
+            schedule_relationship="SCHEDULED",
+        )
+
+        # Feed only reports S1 (+120 s absolute) and S3 (+300 s absolute).
+        # S2 and S4 are absent from the feed and must be synthesised by the loading service.
+        feed_stop_times = [
+            StopTimeRecord(
+                operation_day_date=op_day,
+                trip_id="T-FILL",
+                stop_id="S1",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_s1_arr,   # placeholder; overwritten by baseline
+                nom_departure_time=nom_s1_dep,
+                act_arrival_time=nom_s1_arr + timedelta(seconds=120),
+                act_departure_time=nom_s1_dep + timedelta(seconds=120),
+                schedule_relationship="SCHEDULED",
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=op_day,
+                trip_id="T-FILL",
+                stop_id="S3",
+                distance_from_start=4.0,
+                nom_arrival_time=nom_s3_arr,   # placeholder; overwritten by baseline
+                nom_departure_time=nom_s3_dep,
+                act_arrival_time=nom_s3_arr + timedelta(seconds=300),
+                act_departure_time=nom_s3_dep + timedelta(seconds=300),
+                schedule_relationship="SCHEDULED",
+                stop_sequence=3,
+            ),
+        ]
+
+        await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=feed_stop_times,
+        )
+
+        # All 4 nominal stops must be persisted.
+        self.assertEqual(4, len(repository.realtime_stop_times))
+
+        by_seq = {s.stop_sequence: s for s in repository.realtime_stop_times}
+
+        # S1: explicit, +120 s.
+        self.assertEqual(nom_s1_arr + timedelta(seconds=120), by_seq[1].act_arrival_time)
+        self.assertEqual(nom_s1_dep + timedelta(seconds=120), by_seq[1].act_departure_time)
+
+        # S2: propagated from S1 delay (+120 s), schedule_relationship = SCHEDULED.
+        self.assertEqual(nom_s2_arr + timedelta(seconds=120), by_seq[2].act_arrival_time)
+        self.assertEqual(nom_s2_dep + timedelta(seconds=120), by_seq[2].act_departure_time)
+        self.assertEqual("SCHEDULED", by_seq[2].schedule_relationship)
+
+        # S3: explicit, +300 s — resets propagation basis.
+        self.assertEqual(nom_s3_arr + timedelta(seconds=300), by_seq[3].act_arrival_time)
+        self.assertEqual(nom_s3_dep + timedelta(seconds=300), by_seq[3].act_departure_time)
+
+        # S4: propagated from S3 delay (+300 s), schedule_relationship = SCHEDULED.
+        self.assertEqual(nom_s4_arr + timedelta(seconds=300), by_seq[4].act_arrival_time)
+        self.assertEqual(nom_s4_dep + timedelta(seconds=300), by_seq[4].act_departure_time)
+        self.assertEqual("SCHEDULED", by_seq[4].schedule_relationship)
+
+    async def test_realtime_propagates_delay_value_to_stops_missing_from_feed(self) -> None:
+        """LoadingService propagates explicit delay_seconds values to nominal stops absent
+        from the feed (delay-only case — no absolute timestamps in the feed).
+
+        Scenario: 3 nominal stops.  The feed delivers only S1 (delay=+180 s).  S2 and S3
+        are absent and must be synthesised with +180 s propagated.
+        """
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        op_day = date(2026, 5, 30)
+        nom_base = datetime(2026, 5, 30, 9, 0, tzinfo=UTC)
+
+        nom_s1_arr = nom_base + timedelta(minutes=5)
+        nom_s1_dep = nom_base + timedelta(minutes=6)
+        nom_s2_arr = nom_base + timedelta(minutes=15)
+        nom_s2_dep = nom_base + timedelta(minutes=16)
+        nom_s3_arr = nom_base + timedelta(minutes=25)
+        nom_s3_dep = nom_base + timedelta(minutes=26)
+
+        repository.nominal_stop_times = [
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-DELAY", stop_id="S1",
+                           distance_from_start=0.0, nom_arrival_time=nom_s1_arr,
+                           nom_departure_time=nom_s1_dep, act_arrival_time=None,
+                           act_departure_time=None, stop_sequence=1),
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-DELAY", stop_id="S2",
+                           distance_from_start=3.0, nom_arrival_time=nom_s2_arr,
+                           nom_departure_time=nom_s2_dep, act_arrival_time=None,
+                           act_departure_time=None, stop_sequence=2),
+            StopTimeRecord(operation_day_date=op_day, trip_id="T-DELAY", stop_id="S3",
+                           distance_from_start=6.0, nom_arrival_time=nom_s3_arr,
+                           nom_departure_time=nom_s3_dep, act_arrival_time=None,
+                           act_departure_time=None, stop_sequence=3),
+        ]
+
+        trip = TripRecord(
+            operation_day_date=op_day,
+            trip_id="T-DELAY",
+            route_id="R1",
+            operator_id=None,
+            operator_name=None,
+            schedule_relationship="SCHEDULED",
+        )
+
+        # Feed only has S1 with delay=+180 s; S2 and S3 are absent.
+        feed_stop_times = [
+            StopTimeRecord(
+                operation_day_date=op_day,
+                trip_id="T-DELAY",
+                stop_id="S1",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_s1_arr,
+                nom_departure_time=nom_s1_dep,
+                act_arrival_time=None,
+                act_departure_time=None,
+                schedule_relationship="SCHEDULED",
+                stop_sequence=1,
+                arrival_delay_seconds=180,
+                departure_delay_seconds=180,
+            ),
+        ]
+
+        await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=feed_stop_times,
+        )
+
+        # All 3 nominal stops must be persisted.
+        self.assertEqual(3, len(repository.realtime_stop_times))
+
+        by_seq = {s.stop_sequence: s for s in repository.realtime_stop_times}
+
+        # S1: explicit, delay=+180 s resolved.
+        self.assertEqual(nom_s1_arr + timedelta(seconds=180), by_seq[1].act_arrival_time)
+        self.assertEqual(nom_s1_dep + timedelta(seconds=180), by_seq[1].act_departure_time)
+
+        # S2 and S3: propagated from S1 delay (+180 s), SCHEDULED.
+        self.assertEqual(nom_s2_arr + timedelta(seconds=180), by_seq[2].act_arrival_time)
+        self.assertEqual(nom_s2_dep + timedelta(seconds=180), by_seq[2].act_departure_time)
+        self.assertEqual("SCHEDULED", by_seq[2].schedule_relationship)
+
+        self.assertEqual(nom_s3_arr + timedelta(seconds=180), by_seq[3].act_arrival_time)
+        self.assertEqual(nom_s3_dep + timedelta(seconds=180), by_seq[3].act_departure_time)
+        self.assertEqual("SCHEDULED", by_seq[3].schedule_relationship)
 
 
 if __name__ == "__main__":
