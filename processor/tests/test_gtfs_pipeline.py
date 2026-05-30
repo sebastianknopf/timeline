@@ -512,6 +512,297 @@ class GtfsNominalPipelineTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(0.0, stops_by_id["S-MISSING"].stop_lon)
             self.assertEqual("S-MISSING", repository.trips[0].nom_end_stop_id)
 
+    async def test_pipeline_uses_shape_dist_traveled_from_shapes_txt_as_fallback(self) -> None:
+        """A17 / T8: when stop_times has no shape_dist_traveled, nom_total_distance
+        and distance_from_start must fall back to the shape index built from shapes.txt.
+        The shape index is expected to use the max shape_dist_traveled value from
+        shapes.txt, applying the meter-to-km heuristic.
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            operation_day = datetime.now(UTC).date().strftime("%Y%m%d")
+
+            gtfs_zip = tmp_dir / "gtfs-shape-index.zip"
+            with zipfile.ZipFile(gtfs_zip, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr(
+                    "agency.txt",
+                    "agency_id,agency_name,agency_timezone\nA1,Agency One,UTC\n",
+                )
+                archive.writestr(
+                    "calendar.txt",
+                    "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n"
+                    f"SVC,1,1,1,1,1,1,1,{operation_day},{operation_day}\n",
+                )
+                archive.writestr(
+                    "routes.txt",
+                    "route_id,agency_id,route_short_name\nR1,A1,Route 1\n",
+                )
+                # trips.txt references shape SH1.
+                archive.writestr(
+                    "trips.txt",
+                    "route_id,service_id,trip_id,shape_id\nR1,SVC,T1,SH1\n",
+                )
+                archive.writestr(
+                    "stops.txt",
+                    "stop_id,stop_name,stop_lat,stop_lon\n"
+                    "S1,Stop One,48.1,8.1\nS2,Stop Two,48.2,8.2\n",
+                )
+                # stop_times intentionally has NO shape_dist_traveled column.
+                archive.writestr(
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+                    "T1,08:00:00,08:01:00,S1,1\n"
+                    "T1,08:30:00,08:31:00,S2,2\n",
+                )
+                # shapes.txt: shape_dist_traveled in meters (max 12500 → 12.5 km after heuristic).
+                archive.writestr(
+                    "shapes.txt",
+                    "shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence,shape_dist_traveled\n"
+                    "SH1,48.1,8.1,1,0\n"
+                    "SH1,48.15,8.15,2,6250\n"
+                    "SH1,48.2,8.2,3,12500\n",
+                )
+
+            pipeline = PipelineConfig(
+                id="nominal-main",
+                name="gtfs",
+                type="nominal",
+                cron="0 2 * * *",
+                endpoint=gtfs_zip.as_uri(),
+            )
+            instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+            mapping_service = MappingService()
+            mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+
+            repository = RecordingRepository()
+            loading_service = LoadingService(repository=repository)
+            gtfs_pipeline = GtfsNominalPipeline(
+                loading_service=loading_service,
+                mapping_service=mapping_service,
+            )
+
+            await gtfs_pipeline.execute(instance=instance, pipeline=pipeline)
+
+            self.assertEqual(1, len(repository.trips))
+            # 12500 m → 12.5 km via meter-detection heuristic (> 200 → /1000).
+            self.assertAlmostEqual(12.5, repository.trips[0].nom_total_distance, places=5)
+
+    async def test_pipeline_uses_coordinate_based_shape_index_when_shape_dist_traveled_absent(self) -> None:
+        """A17: when shapes.txt has no shape_dist_traveled column at all, the shape
+        index must fall back to Haversine-accumulated coordinate distance.  The
+        resulting nom_total_distance should be a reasonable positive value.
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            operation_day = datetime.now(UTC).date().strftime("%Y%m%d")
+
+            gtfs_zip = tmp_dir / "gtfs-shape-coords.zip"
+            with zipfile.ZipFile(gtfs_zip, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr(
+                    "agency.txt",
+                    "agency_id,agency_name,agency_timezone\nA1,Agency One,UTC\n",
+                )
+                archive.writestr(
+                    "calendar.txt",
+                    "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n"
+                    f"SVC,1,1,1,1,1,1,1,{operation_day},{operation_day}\n",
+                )
+                archive.writestr(
+                    "routes.txt",
+                    "route_id,agency_id,route_short_name\nR1,A1,Route 1\n",
+                )
+                archive.writestr(
+                    "trips.txt",
+                    "route_id,service_id,trip_id,shape_id\nR1,SVC,T1,SH2\n",
+                )
+                archive.writestr(
+                    "stops.txt",
+                    "stop_id,stop_name,stop_lat,stop_lon\n"
+                    "S1,Stop One,48.1,8.1\nS2,Stop Two,48.2,8.2\n",
+                )
+                archive.writestr(
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+                    "T1,08:00:00,08:01:00,S1,1\n"
+                    "T1,08:30:00,08:31:00,S2,2\n",
+                )
+                # shapes.txt: no shape_dist_traveled; only coordinates.
+                # (48.1, 8.1) → (48.2, 8.2) is roughly ~13.5 km.
+                archive.writestr(
+                    "shapes.txt",
+                    "shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\n"
+                    "SH2,48.1,8.1,1\n"
+                    "SH2,48.2,8.2,2\n",
+                )
+
+            pipeline = PipelineConfig(
+                id="nominal-main",
+                name="gtfs",
+                type="nominal",
+                cron="0 2 * * *",
+                endpoint=gtfs_zip.as_uri(),
+            )
+            instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+            mapping_service = MappingService()
+            mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+
+            repository = RecordingRepository()
+            loading_service = LoadingService(repository=repository)
+            gtfs_pipeline = GtfsNominalPipeline(
+                loading_service=loading_service,
+                mapping_service=mapping_service,
+            )
+
+            await gtfs_pipeline.execute(instance=instance, pipeline=pipeline)
+
+            self.assertEqual(1, len(repository.trips))
+            # Haversine distance between (48.1, 8.1) and (48.2, 8.2) is ~ 13.5 km.
+            # Assert a positive value within a plausible range.
+            nom_dist = repository.trips[0].nom_total_distance
+            self.assertGreater(nom_dist, 5.0)
+            self.assertLess(nom_dist, 30.0)
+
+    async def test_pipeline_shape_dist_traveled_takes_priority_over_shape_index(self) -> None:
+        """When stop_times.txt carries valid shape_dist_traveled values, those must
+        remain the primary source for nom_total_distance even when shapes.txt is
+        also present with a different distance.
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            operation_day = datetime.now(UTC).date().strftime("%Y%m%d")
+
+            gtfs_zip = tmp_dir / "gtfs-shape-priority.zip"
+            with zipfile.ZipFile(gtfs_zip, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr(
+                    "agency.txt",
+                    "agency_id,agency_name,agency_timezone\nA1,Agency One,UTC\n",
+                )
+                archive.writestr(
+                    "calendar.txt",
+                    "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n"
+                    f"SVC,1,1,1,1,1,1,1,{operation_day},{operation_day}\n",
+                )
+                archive.writestr(
+                    "routes.txt",
+                    "route_id,agency_id,route_short_name\nR1,A1,Route 1\n",
+                )
+                archive.writestr(
+                    "trips.txt",
+                    "route_id,service_id,trip_id,shape_id\nR1,SVC,T1,SH3\n",
+                )
+                archive.writestr(
+                    "stops.txt",
+                    "stop_id,stop_name,stop_lat,stop_lon\n"
+                    "S1,Stop One,48.1,8.1\nS2,Stop Two,48.2,8.2\n",
+                )
+                # stop_times carries shape_dist_traveled (km scale: max 8.0 km).
+                archive.writestr(
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence,shape_dist_traveled\n"
+                    "T1,08:00:00,08:01:00,S1,1,0\n"
+                    "T1,08:30:00,08:31:00,S2,2,8.0\n",
+                )
+                # shapes.txt has a very different value (999 km) — must NOT be used.
+                archive.writestr(
+                    "shapes.txt",
+                    "shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence,shape_dist_traveled\n"
+                    "SH3,48.1,8.1,1,0\n"
+                    "SH3,48.2,8.2,2,999\n",
+                )
+
+            pipeline = PipelineConfig(
+                id="nominal-main",
+                name="gtfs",
+                type="nominal",
+                cron="0 2 * * *",
+                endpoint=gtfs_zip.as_uri(),
+            )
+            instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+            mapping_service = MappingService()
+            mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+
+            repository = RecordingRepository()
+            loading_service = LoadingService(repository=repository)
+            gtfs_pipeline = GtfsNominalPipeline(
+                loading_service=loading_service,
+                mapping_service=mapping_service,
+            )
+
+            await gtfs_pipeline.execute(instance=instance, pipeline=pipeline)
+
+            self.assertEqual(1, len(repository.trips))
+            # stop_times shape_dist_traveled (8.0 km) must take priority over shape index (999 km).
+            self.assertAlmostEqual(8.0, repository.trips[0].nom_total_distance, places=5)
+
+    async def test_pipeline_works_without_shapes_file(self) -> None:
+        """When shapes.txt is absent the shape index is empty and the pipeline
+        must still complete successfully, falling back to 0.0 for trips without
+        shape_dist_traveled in stop_times.
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            operation_day = datetime.now(UTC).date().strftime("%Y%m%d")
+
+            gtfs_zip = tmp_dir / "gtfs-no-shapes.zip"
+            with zipfile.ZipFile(gtfs_zip, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr(
+                    "agency.txt",
+                    "agency_id,agency_name,agency_timezone\nA1,Agency One,UTC\n",
+                )
+                archive.writestr(
+                    "calendar.txt",
+                    "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n"
+                    f"SVC,1,1,1,1,1,1,1,{operation_day},{operation_day}\n",
+                )
+                archive.writestr(
+                    "routes.txt",
+                    "route_id,agency_id,route_short_name\nR1,A1,Route 1\n",
+                )
+                # trips.txt has no shape_id.
+                archive.writestr(
+                    "trips.txt",
+                    "route_id,service_id,trip_id\nR1,SVC,T1\n",
+                )
+                archive.writestr(
+                    "stops.txt",
+                    "stop_id,stop_name,stop_lat,stop_lon\n"
+                    "S1,Stop One,48.1,8.1\nS2,Stop Two,48.2,8.2\n",
+                )
+                archive.writestr(
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+                    "T1,08:00:00,08:01:00,S1,1\n"
+                    "T1,08:30:00,08:31:00,S2,2\n",
+                )
+                # No shapes.txt in archive.
+
+            pipeline = PipelineConfig(
+                id="nominal-main",
+                name="gtfs",
+                type="nominal",
+                cron="0 2 * * *",
+                endpoint=gtfs_zip.as_uri(),
+            )
+            instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+            mapping_service = MappingService()
+            mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+
+            repository = RecordingRepository()
+            loading_service = LoadingService(repository=repository)
+            gtfs_pipeline = GtfsNominalPipeline(
+                loading_service=loading_service,
+                mapping_service=mapping_service,
+            )
+
+            await gtfs_pipeline.execute(instance=instance, pipeline=pipeline)
+
+            self.assertEqual(1, len(repository.trips))
+            self.assertEqual(0.0, repository.trips[0].nom_total_distance)
+
 
 if __name__ == "__main__":
     unittest.main()

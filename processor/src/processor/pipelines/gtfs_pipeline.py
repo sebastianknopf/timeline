@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import math
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from io import BytesIO, TextIOWrapper
@@ -43,6 +44,18 @@ class _RouteInfo:
 class _TripMeta:
     trip_id: str
     route_id: str
+    shape_id: str
+
+
+@dataclass(slots=True)
+class _ShapeIndexState:
+    """Mutable per-shape accumulation state used while streaming shapes.txt."""
+
+    dist_traveled: float | None = None
+    coord_km: float = 0.0
+    prev_lat: float | None = None
+    prev_lon: float | None = None
+    prev_seq: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +105,7 @@ class GtfsNominalPipeline:
             valid_service_ids = self._resolve_valid_service_ids(feed=feed, operation_day=operation_day)
             routes = self._read_routes(feed=feed, agencies=agencies, pipeline=pipeline)
             trips = self._read_trips(feed=feed, valid_service_ids=valid_service_ids)
+            shape_index = self._read_shape_index(feed=feed)
             stop_times_by_trip = self._read_stop_times(feed=feed, valid_trip_ids=set(trips.keys()))
             stop_records = self._read_stops(feed=feed, referenced_stop_ids=_referenced_stop_ids(stop_times_by_trip))
         finally:
@@ -133,6 +147,8 @@ class GtfsNominalPipeline:
                 trip_id=trip_id,
                 route=route,
                 stop_times=transformed_rows,
+                shape_id=trip_meta.shape_id,
+                shape_index=shape_index,
             )
             mapped_trip, mapped_stop_times = await self._mapping_service.map_records_for_loading(
                 instance_id=instance.id,
@@ -186,6 +202,7 @@ class GtfsNominalPipeline:
             route_count=len(route_record_list),
             trip_count=len(trip_records),
             stop_time_count=len(stop_time_records),
+            shape_index_count=len(shape_index),
         )
 
     def _resolve_valid_service_ids(self, feed: "_GtfsArchive", operation_day: date) -> set[str]:
@@ -325,9 +342,97 @@ class GtfsNominalPipeline:
             if service_id not in valid_service_ids:
                 continue
 
-            trips[trip_id] = _TripMeta(trip_id=trip_id, route_id=route_id)
+            trips[trip_id] = _TripMeta(
+                trip_id=trip_id,
+                route_id=route_id,
+                shape_id=(row.get("shape_id") or "").strip(),
+            )
 
         return trips
+
+    def _read_shape_index(self, feed: "_GtfsArchive") -> dict[str, float]:
+        """Build a shape_id → total-distance-in-km index by streaming shapes.txt.
+
+        Two complementary strategies are applied in a single streaming pass:
+
+        1. ``shape_dist_traveled`` strategy: if the column is present and
+           non-empty for a shape point, the running maximum per shape is tracked.
+           The maximum of all ``shape_dist_traveled`` values equals the total
+           path length (last point has the highest cumulative value).  The same
+           meter-detection heuristic used for stop_times applies: if the maximum
+           exceeds 200 the values are treated as meters and divided by 1000.
+
+        2. Coordinate strategy: if ``shape_dist_traveled`` is absent or empty for
+           a shape, the cumulative Haversine distance between consecutive shape
+           points (in ``shape_pt_sequence`` order) is accumulated.  Memory usage
+           is O(number of distinct shape_ids) – only the last seen point per shape
+           is retained, not the full point list.
+
+        The ``shape_dist_traveled`` strategy takes precedence when any non-zero
+        value is available for a shape.
+        """
+        if not feed.has_file("shapes.txt"):
+            return {}
+
+        states: dict[str, _ShapeIndexState] = {}
+
+        for row in feed.iter_csv_rows("shapes.txt"):
+            shape_id = (row.get("shape_id") or "").strip()
+            if not shape_id:
+                continue
+
+            state = states.get(shape_id)
+            if state is None:
+                state = _ShapeIndexState()
+                states[shape_id] = state
+
+            # --- strategy 1: shape_dist_traveled ---
+            raw_dist = (row.get("shape_dist_traveled") or "").strip()
+            if raw_dist:
+                try:
+                    dist_val = float(raw_dist)
+                except ValueError:
+                    dist_val = None
+                if dist_val is not None and dist_val >= 0:
+                    state.dist_traveled = max(state.dist_traveled or 0.0, dist_val)
+
+            # --- strategy 2: coordinate accumulation ---
+            raw_seq = (row.get("shape_pt_sequence") or "").strip()
+            raw_lat = (row.get("shape_pt_lat") or "").strip()
+            raw_lon = (row.get("shape_pt_lon") or "").strip()
+            seq = _parse_int(raw_seq)
+            try:
+                lat = float(raw_lat) if raw_lat else None
+                lon = float(raw_lon) if raw_lon else None
+            except ValueError:
+                lat, lon = None, None
+
+            if seq is not None and lat is not None and lon is not None:
+                if (
+                    state.prev_lat is not None
+                    and state.prev_lon is not None
+                    and state.prev_seq is not None
+                    and seq > state.prev_seq
+                ):
+                    state.coord_km += _haversine_km(state.prev_lat, state.prev_lon, lat, lon)
+                state.prev_lat = lat
+                state.prev_lon = lon
+                state.prev_seq = seq
+
+        # Resolve final distance per shape, preferring shape_dist_traveled.
+        index: dict[str, float] = {}
+        for shape_id, state in states.items():
+            if state.dist_traveled is not None and state.dist_traveled > 0:
+                # Apply the same meter-detection heuristic as for stop_times.
+                raw = state.dist_traveled
+                dist_km = raw / 1000.0 if raw > 200.0 else raw
+            else:
+                dist_km = state.coord_km
+
+            if dist_km > 0:
+                index[shape_id] = dist_km
+
+        return index
 
     def _read_stop_times(
         self,
@@ -465,9 +570,21 @@ class GtfsNominalPipeline:
         trip_id: str,
         route: _RouteInfo,
         stop_times: list[StopTimeRecord],
+        shape_id: str = "",
+        shape_index: dict[str, float] | None = None,
     ) -> TripRecord:
         first_stop = stop_times[0]
         last_stop = stop_times[-1]
+
+        # Primary source: maximum distance_from_start derived from shape_dist_traveled
+        # in stop_times.txt (already normalized to km by _transform_stop_times).
+        nom_total_distance = max(item.distance_from_start for item in stop_times)
+
+        # Fallback: if stop_times did not carry useful distance information, look up
+        # the pre-built shape index by the trip's shape_id.
+        if nom_total_distance == 0.0 and shape_id and shape_index:
+            nom_total_distance = shape_index.get(shape_id, 0.0)
+
         return TripRecord(
             operation_day_date=operation_day,
             trip_id=trip_id,
@@ -481,7 +598,7 @@ class GtfsNominalPipeline:
             act_end_time=None,
             nom_start_stop_id=first_stop.stop_id,
             nom_end_stop_id=last_stop.stop_id,
-            nom_total_distance=max(item.distance_from_start for item in stop_times),
+            nom_total_distance=nom_total_distance,
             act_total_distance=None,
             schedule_relationship="UNKNOWN",
         )
@@ -722,6 +839,17 @@ def _normalize_shape_distance_values_km(rows: list[_StopTimeRow]) -> dict[int, f
         normalized[row.stop_sequence] = distance_km
 
     return normalized
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Compute great-circle distance in kilometres using the Haversine formula."""
+    r = 6371.0  # Earth mean radius in km
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2.0) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2.0) ** 2
+    return 2.0 * r * math.asin(math.sqrt(a))
 
 
 def _parse_float(raw_value: str, default: float) -> float:
