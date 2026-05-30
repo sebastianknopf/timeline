@@ -1624,6 +1624,251 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(nom_s3_dep + timedelta(seconds=180), by_seq[3].act_departure_time)
         self.assertEqual("SCHEDULED", by_seq[3].schedule_relationship)
 
+    async def test_act_total_distance_equals_nom_total_distance_for_scheduled_trip(self) -> None:
+        """For a SCHEDULED trip, act_total_distance must be set to nom_total_distance.
+
+        A SCHEDULED trip is assumed to have operated its full nominal route, so the
+        nominal total distance is attributed as the actual distance driven.
+        """
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        now = datetime.now(UTC)
+        nom_base = now - timedelta(hours=1)
+
+        trip = TripRecord(
+            operation_day_date=now.date(),
+            trip_id="trip-sched-dist",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+            schedule_relationship="SCHEDULED",
+        )
+        baseline = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-sched-dist",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-sched-dist",
+                stop_id="B",
+                distance_from_start=12.5,
+                nom_arrival_time=nom_base + timedelta(minutes=20),
+                nom_departure_time=nom_base + timedelta(minutes=21),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+        ]
+        repository.nominal_stop_times = baseline
+
+        realtime = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-sched-dist",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=nom_base + timedelta(seconds=30),
+                act_departure_time=nom_base + timedelta(minutes=1, seconds=30),
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-sched-dist",
+                stop_id="B",
+                distance_from_start=12.5,
+                nom_arrival_time=nom_base + timedelta(minutes=20),
+                nom_departure_time=nom_base + timedelta(minutes=21),
+                act_arrival_time=nom_base + timedelta(minutes=20, seconds=45),
+                act_departure_time=nom_base + timedelta(minutes=21, seconds=45),
+                stop_sequence=2,
+            ),
+        ]
+
+        await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=realtime,
+        )
+
+        self.assertEqual(1, len(repository.realtime_trips))
+        self.assertAlmostEqual(12.5, repository.realtime_trips[0].nom_total_distance)
+        # SCHEDULED → act_total_distance must equal nom_total_distance.
+        self.assertAlmostEqual(12.5, repository.realtime_trips[0].act_total_distance)
+
+    async def test_act_total_distance_is_zero_for_unknown_trip(self) -> None:
+        """For an UNKNOWN trip, act_total_distance must be 0.0.
+
+        An UNKNOWN schedule_relationship means the trip's operational status cannot be
+        determined; no actual kilometres are attributed.
+        """
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        now = datetime.now(UTC)
+        nom_base = now - timedelta(hours=1)
+
+        trip = TripRecord(
+            operation_day_date=now.date(),
+            trip_id="trip-unknown-dist",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+            schedule_relationship="UNKNOWN",
+        )
+        baseline = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-unknown-dist",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-unknown-dist",
+                stop_id="B",
+                distance_from_start=8.0,
+                nom_arrival_time=nom_base + timedelta(minutes=15),
+                nom_departure_time=nom_base + timedelta(minutes=16),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+        ]
+        repository.nominal_stop_times = baseline
+
+        realtime = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-unknown-dist",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=nom_base + timedelta(minutes=1),
+                act_departure_time=nom_base + timedelta(minutes=1),
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-unknown-dist",
+                stop_id="B",
+                distance_from_start=8.0,
+                nom_arrival_time=nom_base + timedelta(minutes=15),
+                nom_departure_time=nom_base + timedelta(minutes=16),
+                act_arrival_time=nom_base + timedelta(minutes=15),
+                act_departure_time=nom_base + timedelta(minutes=16),
+                stop_sequence=2,
+            ),
+        ]
+
+        await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=realtime,
+        )
+
+        self.assertEqual(1, len(repository.realtime_trips))
+        # UNKNOWN → act_total_distance must be 0.0.
+        self.assertEqual(0.0, repository.realtime_trips[0].act_total_distance)
+
+    async def test_act_total_distance_is_zero_for_cancelled_trip(self) -> None:
+        """For a CANCELLED trip, act_total_distance must be 0.0.
+
+        A CANCELLED trip did not operate, so no actual kilometres are attributed.
+        """
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        now = datetime.now(UTC)
+        nom_base = now - timedelta(hours=1)
+
+        trip = TripRecord(
+            operation_day_date=now.date(),
+            trip_id="trip-cancelled-dist",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+            schedule_relationship="CANCELLED",
+        )
+        baseline = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-cancelled-dist",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-cancelled-dist",
+                stop_id="B",
+                distance_from_start=5.0,
+                nom_arrival_time=nom_base + timedelta(minutes=10),
+                nom_departure_time=nom_base + timedelta(minutes=11),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+        ]
+        repository.nominal_stop_times = baseline
+
+        # Even with actual times on stop-time records the trip-level act_total_distance
+        # must be 0.0 because schedule_relationship is CANCELLED.
+        realtime = [
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-cancelled-dist",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=nom_base,
+                act_departure_time=nom_base + timedelta(minutes=1),
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=now.date(),
+                trip_id="trip-cancelled-dist",
+                stop_id="B",
+                distance_from_start=5.0,
+                nom_arrival_time=nom_base + timedelta(minutes=10),
+                nom_departure_time=nom_base + timedelta(minutes=11),
+                act_arrival_time=nom_base + timedelta(minutes=10),
+                act_departure_time=nom_base + timedelta(minutes=11),
+                stop_sequence=2,
+            ),
+        ]
+
+        await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=realtime,
+        )
+
+        self.assertEqual(1, len(repository.realtime_trips))
+        # CANCELLED → act_total_distance must be 0.0.
+        self.assertEqual(0.0, repository.realtime_trips[0].act_total_distance)
+
 
 if __name__ == "__main__":
     unittest.main()

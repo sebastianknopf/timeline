@@ -328,6 +328,22 @@ class LoadingService:
         else:
             act_end_time = nom_end_time
 
+        nom_total_distance = max(item.distance_from_start for item in ordered_nominal)
+
+        # Derive act_total_distance based on the trip's schedule_relationship.
+        # SCHEDULED trips are assumed to have operated their full nominal distance, so
+        # nom_total_distance is copied to act_total_distance.
+        # All other relationships (UNKNOWN, CANCELLED, …) contribute zero actual kilometres
+        # because the trip either did not run or its operational status is unknown.
+        # NOTE: this is an all-or-nothing attribution model — a trip that was only
+        # partially operated is treated identically to a fully operated one (SCHEDULED)
+        # or a fully cancelled one. Per-segment partial-distance accounting is not
+        # supported in this version.
+        if source_trip.schedule_relationship == "SCHEDULED":
+            act_total_distance: float = nom_total_distance
+        else:
+            act_total_distance = 0.0
+
         return replace(
             source_trip,
             nom_start_time=nom_start_time,
@@ -336,8 +352,8 @@ class LoadingService:
             act_end_time=act_end_time,
             nom_start_stop_id=first_stop.stop_id,
             nom_end_stop_id=last_stop.stop_id,
-            nom_total_distance=max(item.distance_from_start for item in ordered_nominal),
-            act_total_distance=max(item.distance_from_start for item in normalized_stop_times),
+            nom_total_distance=nom_total_distance,
+            act_total_distance=act_total_distance,
         )
 
 
