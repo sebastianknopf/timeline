@@ -72,3 +72,7 @@ The processor container expects the active configuration file at `/app/config/co
 ## Database Documentation
 
 The relational schema and model definitions are documented in [docs/DATABASE.md](DATABASE.md).
+
+## Scripts Documentation
+
+Helper scripts for database access and other operational tasks are documented in [docs/SCRIPTS.md](SCRIPTS.md).

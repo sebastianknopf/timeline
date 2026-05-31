@@ -3,6 +3,7 @@
 This document defines the database schema and model for Timeline.
 
 For the overall system architecture, see [docs/ARCHITECTURE.md](ARCHITECTURE.md).
+For database access scripts, see [docs/SCRIPTS.md](SCRIPTS.md).
 
 ## Modeling Principle
 
