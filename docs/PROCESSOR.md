@@ -4,6 +4,12 @@ This document describes the architecture of the `processor` service.
 
 For the overall repository architecture, see [docs/ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Diagram
+
+![Processor Architecture](processor.png)
+
+The diagram source is [docs/processor.drawio](processor.drawio) and can be opened in VS Code (Draw.io Integration extension) or at [app.diagrams.net](https://app.diagrams.net).
+
 ## Purpose
 
 The processor is the Python service responsible for the Timeline ETL workload. It is structured as a containerized application and runs as a module entrypoint through `python -m processor`.

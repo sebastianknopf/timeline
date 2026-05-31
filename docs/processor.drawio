@@ -1,0 +1,195 @@
+<mxfile host="app.diagrams.net" modified="2026-05-31T00:00:00.000Z" agent="GitHub Copilot" version="24.0.0">
+  <diagram name="Processor Architecture" id="processor-arch-01">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1120" pageHeight="1160" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ── Outer boundary ── -->
+        <mxCell id="10" value="Processor Service"
+          style="rounded=1;whiteSpace=wrap;html=1;arcSize=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=14;fontStyle=1;verticalAlign=top;align=center;spacingTop=5;"
+          vertex="1" parent="1">
+          <mxGeometry x="10" y="10" width="1100" height="1090" as="geometry" />
+        </mxCell>
+
+        <!-- ── External: config.yaml ── -->
+        <mxCell id="32" value="config.yaml"
+          style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=15;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="30" y="60" width="130" height="65" as="geometry" />
+        </mxCell>
+
+        <!-- ── PipelineScheduler ── -->
+        <mxCell id="20" value="&lt;b&gt;PipelineScheduler&lt;/b&gt;&lt;br/&gt;cron-based trigger per pipeline"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="430" y="55" width="260" height="75" as="geometry" />
+        </mxCell>
+
+        <!-- ── PipelineExecutor ── -->
+        <mxCell id="21" value="&lt;b&gt;PipelineExecutor&lt;/b&gt;&lt;br/&gt;&lt;i&gt;PipelineExecutorInterface&lt;/i&gt;"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="430" y="175" width="260" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ── External: GTFS Feed ── -->
+        <mxCell id="30" value="GTFS Feed&lt;br/&gt;&lt;font color='#6666aa' style='font-size:10px'&gt;HTTP / ZIP&lt;/font&gt;"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="30" y="315" width="130" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ── GtfsNominalPipeline ── -->
+        <mxCell id="22" value="&lt;b&gt;GtfsNominalPipeline&lt;/b&gt;&lt;br/&gt;&lt;font style='font-size:10px'&gt;fetch ZIP · parse stops, routes,&lt;br/&gt;trips, stop_times · build shape index&lt;/font&gt;"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="175" y="300" width="210" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- ── MappingService ── -->
+        <mxCell id="23" value="&lt;b&gt;MappingService&lt;/b&gt;&lt;br/&gt;&lt;i&gt;MappingServiceInterface&lt;/i&gt;&lt;br/&gt;&lt;font style='font-size:10px'&gt;identifier translation (per-instance)&lt;br/&gt;wildcard key resolution&lt;/font&gt;"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="455" y="300" width="210" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- ── GtfsRtTripUpdatesPipeline ── -->
+        <mxCell id="24" value="&lt;b&gt;GtfsRtTripUpdatesPipeline&lt;/b&gt;&lt;br/&gt;&lt;font style='font-size:10px'&gt;fetch Protobuf · decode TripUpdates&lt;br/&gt;· normalize stop events&lt;/font&gt;"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="735" y="300" width="210" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- ── External: GTFS-RT Feed ── -->
+        <mxCell id="31" value="GTFS-RT Feed&lt;br/&gt;&lt;font color='#6666aa' style='font-size:10px'&gt;HTTP / Protobuf&lt;/font&gt;"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="960" y="315" width="130" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ── LoadingService ── -->
+        <mxCell id="25" value="&lt;b&gt;LoadingService&lt;/b&gt;&lt;br/&gt;&lt;font style='font-size:10px'&gt;&lt;b&gt;Nominal path:&lt;/b&gt; upsert stops · insert routes · insert trips + stop_times (selective upsert; nom fields only on conflict)&lt;/font&gt;&lt;br/&gt;&lt;font style='font-size:10px'&gt;&lt;b&gt;Realtime path:&lt;/b&gt; ① lookup nom stop_times · ② fallback match (route + start_time) · ③ remap trip_id · ④ fetch nom trip · ⑤ derive act fields · ⑥ upsert&lt;/font&gt;"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="285" y="465" width="550" height="120" as="geometry" />
+        </mxCell>
+
+        <!-- ── TimelineRepositoryInterface ── -->
+        <mxCell id="26" value="&lt;&lt;Protocol&gt;&gt; &lt;b&gt;TimelineRepositoryInterface&lt;/b&gt;&lt;br/&gt;&lt;font style='font-size:10px'&gt;upsert_nominal_stops · insert_nominal_routes · insert_nominal_trips · insert_nominal_stop_times&lt;br/&gt;get_nominal_stop_times_for_trip · find_nominal_trip_id_by_properties · get_nominal_trip&lt;br/&gt;upsert_realtime_trip · upsert_realtime_stop_times&lt;/font&gt;"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=11;fontStyle=2;"
+          vertex="1" parent="1">
+          <mxGeometry x="285" y="655" width="550" height="95" as="geometry" />
+        </mxCell>
+
+        <!-- ── SqlAlchemyTimelineRepository ── -->
+        <mxCell id="27" value="&lt;b&gt;SqlAlchemyTimelineRepository&lt;/b&gt;&lt;br/&gt;&lt;font style='font-size:10px'&gt;SQLAlchemy ORM · asyncio.to_thread wrappers · implements TimelineRepositoryInterface&lt;/font&gt;"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="285" y="820" width="550" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ── PostgreSQL ── -->
+        <mxCell id="28" value="&lt;b&gt;PostgreSQL 16&lt;/b&gt;&lt;br/&gt;timeline schema&lt;br/&gt;&lt;font style='font-size:10px'&gt;dim_trips · fact_stop_times · dim_stops · dim_routes&lt;/font&gt;"
+          style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="380" y="960" width="360" height="95" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════ EDGES ═══════════ -->
+
+        <!-- config.yaml → PipelineScheduler -->
+        <mxCell id="50" value="reads"
+          style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;dashed=1;endArrow=open;endFill=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;"
+          edge="1" source="32" target="20" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- PipelineScheduler → PipelineExecutor -->
+        <mxCell id="51" value="trigger"
+          style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;"
+          edge="1" source="20" target="21" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- PipelineExecutor → GtfsNominalPipeline -->
+        <mxCell id="52" value="execute()"
+          style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0.2;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;"
+          edge="1" source="21" target="22" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- PipelineExecutor → GtfsRtTripUpdatesPipeline -->
+        <mxCell id="53" value="execute()"
+          style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0.8;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;"
+          edge="1" source="21" target="24" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- GTFS Feed → GtfsNominalPipeline -->
+        <mxCell id="54" value="fetch"
+          style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;"
+          edge="1" source="30" target="22" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- GTFS-RT Feed → GtfsRtTripUpdatesPipeline -->
+        <mxCell id="55" value="fetch"
+          style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;"
+          edge="1" source="31" target="24" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- GtfsNominalPipeline → MappingService -->
+        <mxCell id="56" value="map identifiers"
+          style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;"
+          edge="1" source="22" target="23" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- GtfsRtTripUpdatesPipeline → MappingService -->
+        <mxCell id="57" value="map identifiers"
+          style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;"
+          edge="1" source="24" target="23" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- GtfsNominalPipeline → LoadingService -->
+        <mxCell id="58" value="load_nominal_*"
+          style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.1;entryY=0;entryDx=0;entryDy=0;"
+          edge="1" source="22" target="25" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- GtfsRtTripUpdatesPipeline → LoadingService -->
+        <mxCell id="59" value="load_realtime_*"
+          style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.9;entryY=0;entryDx=0;entryDy=0;"
+          edge="1" source="24" target="25" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- LoadingService → TimelineRepositoryInterface -->
+        <mxCell id="60" value="reads + writes"
+          style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;"
+          edge="1" source="25" target="26" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- SqlAlchemyTimelineRepository → TimelineRepositoryInterface (implements, dashed upward) -->
+        <mxCell id="61" value="implements"
+          style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;dashed=1;endArrow=open;endFill=0;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;"
+          edge="1" source="27" target="26" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- SqlAlchemyTimelineRepository → PostgreSQL -->
+        <mxCell id="62" value="SQL (ORM)"
+          style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;"
+          edge="1" source="27" target="28" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

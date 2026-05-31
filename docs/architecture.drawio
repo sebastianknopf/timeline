@@ -1,0 +1,73 @@
+<mxfile host="app.diagrams.net" agent="GitHub Copilot">
+  <diagram name="Timeline Architecture" id="timeline-arch-01">
+    <mxGraphModel dx="1712" dy="926" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=2;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=14;fontStyle=1;verticalAlign=top;align=center;spacingTop=5;" value="Docker Compose Network (timeline)" vertex="1">
+          <mxGeometry height="620" width="1140" x="10" y="10" as="geometry" />
+        </mxCell>
+        <mxCell id="3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=3;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;fontStyle=1;verticalAlign=top;spacingTop=5;" value="Default Stack" vertex="1">
+          <mxGeometry height="210" width="400" x="30" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;db&lt;/b&gt;&lt;br/&gt;PostgreSQL 16&lt;br/&gt;&lt;font color=&#39;#6666aa&#39; style=&#39;font-size:10px&#39;&gt;host :5432&lt;/font&gt;" vertex="1">
+          <mxGeometry height="110" width="150" x="60" y="110" as="geometry" />
+        </mxCell>
+        <mxCell id="5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;processor&lt;/b&gt;&lt;br/&gt;Python ETL&lt;br/&gt;&lt;font color=&#39;#6666aa&#39; style=&#39;font-size:10px&#39;&gt;no host port&lt;/font&gt;" vertex="1">
+          <mxGeometry height="110" width="150" x="250" y="110" as="geometry" />
+        </mxCell>
+        <mxCell id="6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=3;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;fontStyle=1;verticalAlign=top;spacingTop=5;" value="Observability Profiles (monitoring / grafana)" vertex="1">
+          <mxGeometry height="210" width="660" x="460" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;loki&lt;/b&gt;&lt;br/&gt;Grafana Loki 3.1.1&lt;br/&gt;&lt;font color=&#39;#6666aa&#39; style=&#39;font-size:10px&#39;&gt;host :3100&lt;/font&gt;" vertex="1">
+          <mxGeometry height="110" width="150" x="715" y="110" as="geometry" />
+        </mxCell>
+        <mxCell id="8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;promtail&lt;/b&gt;&lt;br/&gt;Grafana Promtail 3.1.1&lt;br/&gt;&lt;font color=&#39;#6666aa&#39; style=&#39;font-size:10px&#39;&gt;no host port&lt;/font&gt;" vertex="1">
+          <mxGeometry height="110" width="150" x="505" y="110" as="geometry" />
+        </mxCell>
+        <mxCell id="9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;grafana&lt;/b&gt;&lt;br/&gt;Grafana 11.1.4&lt;br/&gt;&lt;font color=&#39;#6666aa&#39; style=&#39;font-size:10px&#39;&gt;host :3000&lt;/font&gt;" vertex="1">
+          <mxGeometry height="110" width="150" x="935" y="110" as="geometry" />
+        </mxCell>
+        <mxCell id="10" parent="1" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;postgres_data&lt;/b&gt;&lt;br/&gt;named volume" vertex="1">
+          <mxGeometry height="90" width="150" x="60" y="460" as="geometry" />
+        </mxCell>
+        <mxCell id="11" parent="1" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;grafana_data&lt;/b&gt;&lt;br/&gt;named volume" vertex="1">
+          <mxGeometry height="90" width="150" x="935" y="460" as="geometry" />
+        </mxCell>
+        <mxCell id="18" parent="1" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=15;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" value="Docker socket&lt;br/&gt;(container logs)" vertex="1">
+          <mxGeometry height="70" width="150" x="505" y="470" as="geometry" />
+        </mxCell>
+        <mxCell id="12" edge="1" parent="1" source="5" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="4" value="SQL">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="13" edge="1" parent="1" source="8" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="7" value="log push">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+            <mxPoint x="608" y="165" as="sourcePoint" />
+            <mxPoint x="668" y="165" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="14" edge="1" parent="1" source="9" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="7" value="log query">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="15" edge="1" parent="1" source="9" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="4" value="SQL query">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1010" y="310" />
+              <mxPoint x="135" y="310" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="16" edge="1" parent="1" source="4" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;dashed=1;endArrow=none;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="10" value="mounts">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="17" edge="1" parent="1" source="9" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;dashed=1;endArrow=none;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="11" value="mounts">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="19" edge="1" parent="1" source="8" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;dashed=1;endArrow=open;endFill=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="18" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

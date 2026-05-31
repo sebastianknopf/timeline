@@ -2,6 +2,14 @@
 
 This document defines the overall project architecture for the Timeline repository.
 
+## Diagram
+
+![Architecture](architecture.png)
+
+The diagram source is [docs/architecture.drawio](architecture.drawio) and can be opened in VS Code (Draw.io Integration extension) or at [app.diagrams.net](https://app.diagrams.net).
+
+The diagram covers all Docker Compose services, their profiles, named volumes, and the key data flows between components.
+
 ## Scope
 
 The repository is organized as a Docker Compose based system with one application service and supporting infrastructure services:
