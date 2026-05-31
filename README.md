@@ -112,6 +112,7 @@ Current entrypoint:
 | [docs/PROCESSOR.md](docs/PROCESSOR.md) | Processor service internals: pipelines, matching logic, loading strategy, repository layer |
 | [docs/DATABASE.md](docs/DATABASE.md) | Relational schema, table definitions, and field semantics |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Runtime configuration model and YAML reference |
+| [docs/EXPORTS.md](docs/EXPORTS.md) | Export configuration, scheduling, and host path mapping |
 | [docs/SCRIPTS.md](docs/SCRIPTS.md) | Helper scripts for database access and Grafana re-provisioning |
 | [docs/pipelines/GTFS.md](docs/pipelines/GTFS.md) | GTFS nominal pipeline specification |
 | [docs/pipelines/GTFSRT-TRIPUPDATES.md](docs/pipelines/GTFSRT-TRIPUPDATES.md) | GTFS-RT TripUpdates realtime pipeline specification |

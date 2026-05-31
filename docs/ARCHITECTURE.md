@@ -76,6 +76,8 @@ The processor service architecture is documented separately in [docs/PROCESSOR.m
 
 The runtime configuration model is documented in [docs/CONFIGURATION.md](CONFIGURATION.md).
 
+Export configuration is documented in [docs/EXPORTS.md](EXPORTS.md).
+
 The processor container expects the active configuration file at `/app/config/config.yaml`.
 
 ## Database Documentation

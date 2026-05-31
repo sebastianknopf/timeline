@@ -20,6 +20,9 @@ Each instance defines:
 
 - `id`: unique instance identifier
 - `pipeline`: list of pipeline objects (one or more)
+- `export` (optional): list of export objects
+
+For export configuration details, see [docs/EXPORTS.md](EXPORTS.md).
 
 ## Pipeline Object Structure
 

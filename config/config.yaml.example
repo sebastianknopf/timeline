@@ -29,3 +29,14 @@ instance:
         authentication:
           username: "${REALTIME_API_USER}"
           password: "${REALTIME_API_PASSWORD}"
+    export:
+      - id: "daily-trip-export"
+        name: "timeline-export"
+        cron: "0 3 * * *"
+        period:
+          from: -1
+          to: 0
+        processing:
+          # Optional: maps to PROCESSOR_EXPORT_DIR on the host via docker-compose volume.
+          # If omitted, files are stored only inside the container.
+          directory: "/exports"

@@ -9,6 +9,26 @@ PipelinePolicy = Literal["startupAndSchedule", "schedule"]
 
 
 @dataclass(frozen=True, slots=True)
+class ExportProcessingConfig:
+    directory: Path | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExportPeriodConfig:
+    from_day: int
+    to_day: int
+
+
+@dataclass(frozen=True, slots=True)
+class ExportConfig:
+    id: str
+    name: str
+    cron: str
+    period: ExportPeriodConfig
+    processing: ExportProcessingConfig = field(default_factory=ExportProcessingConfig)
+
+
+@dataclass(frozen=True, slots=True)
 class AuthenticationConfig:
     token: str | None = None
     username: str | None = None
@@ -38,6 +58,7 @@ class PipelineConfig:
 class InstanceConfig:
     id: str
     pipelines: tuple[PipelineConfig, ...]
+    exports: tuple[ExportConfig, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True, slots=True)
