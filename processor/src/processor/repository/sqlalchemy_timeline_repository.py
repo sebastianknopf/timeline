@@ -10,6 +10,13 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..database.models import RouteDimension, StopDimension, StopTimeFact, TripDimension
+from ..exports.models import (
+    ExportDataSet,
+    ExportRouteRow,
+    ExportStopRow,
+    ExportStopTimeRow,
+    ExportTripRow,
+)
 from ..loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
 from .intf_timeline_repository import TimelineRepositoryInterface
 
@@ -126,6 +133,151 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
             route_id,
             scheduled_start_time_str,
         )
+
+    async def get_export_dataset(
+        self,
+        instance_id: str,
+        from_date: date,
+        to_date: date,
+    ) -> ExportDataSet:
+        return await asyncio.to_thread(
+            self._get_export_dataset_sync,
+            instance_id,
+            from_date,
+            to_date,
+        )
+
+    def _get_export_dataset_sync(
+        self,
+        instance_id: str,
+        from_date: date,
+        to_date: date,
+    ) -> ExportDataSet:
+        with self._session_factory() as session:
+            stop_time_orm = session.execute(
+                select(StopTimeFact)
+                .where(
+                    StopTimeFact.instance_id == instance_id,
+                    StopTimeFact.operation_day_date >= from_date,
+                    StopTimeFact.operation_day_date < to_date,
+                )
+                .order_by(
+                    StopTimeFact.operation_day_date,
+                    StopTimeFact.trip_id,
+                    StopTimeFact.stop_sequence,
+                )
+            ).scalars().all()
+
+            trip_keys: set[tuple[date, str]] = {
+                (r.operation_day_date, r.trip_id) for r in stop_time_orm
+            }
+            stop_ids_from_facts: set[str] = {r.stop_id for r in stop_time_orm}
+
+            if trip_keys:
+                all_trip_orm = session.execute(
+                    select(TripDimension)
+                    .where(
+                        TripDimension.instance_id == instance_id,
+                        TripDimension.operation_day_date >= from_date,
+                        TripDimension.operation_day_date < to_date,
+                    )
+                    .order_by(TripDimension.operation_day_date, TripDimension.trip_id)
+                ).scalars().all()
+                trip_orm = [
+                    t for t in all_trip_orm if (t.operation_day_date, t.trip_id) in trip_keys
+                ]
+            else:
+                trip_orm = []
+
+            route_ids: set[str] = {t.route_id for t in trip_orm}
+            stop_ids_from_trips: set[str] = (
+                {t.nom_start_stop_id for t in trip_orm}
+                | {t.nom_end_stop_id for t in trip_orm}
+            )
+            all_stop_ids = stop_ids_from_facts | stop_ids_from_trips
+
+            if all_stop_ids:
+                stop_orm = session.execute(
+                    select(StopDimension)
+                    .where(
+                        StopDimension.instance_id == instance_id,
+                        StopDimension.stop_id.in_(all_stop_ids),
+                    )
+                    .order_by(StopDimension.stop_id)
+                ).scalars().all()
+            else:
+                stop_orm = []
+
+            if route_ids:
+                route_orm = session.execute(
+                    select(RouteDimension)
+                    .where(
+                        RouteDimension.instance_id == instance_id,
+                        RouteDimension.route_id.in_(route_ids),
+                    )
+                    .order_by(RouteDimension.route_id)
+                ).scalars().all()
+            else:
+                route_orm = []
+
+            return ExportDataSet(
+                stop_times=[
+                    ExportStopTimeRow(
+                        operation_day_date=r.operation_day_date,
+                        trip_id=r.trip_id,
+                        stop_id=r.stop_id,
+                        stop_sequence=r.stop_sequence,
+                        distance_from_start=r.distance_from_start,
+                        nom_arrival_time=r.nom_arrival_time,
+                        nom_departure_time=r.nom_departure_time,
+                        act_arrival_time=r.act_arrival_time,
+                        act_departure_time=r.act_departure_time,
+                        schedule_relationship=r.schedule_relationship,
+                    )
+                    for r in stop_time_orm
+                ],
+                trips=[
+                    ExportTripRow(
+                        operation_day_date=t.operation_day_date,
+                        trip_id=t.trip_id,
+                        route_id=t.route_id,
+                        concessionaire_id=t.concessionaire_id,
+                        concessionaire_name=t.concessionaire_name,
+                        operator_id=t.operator_id,
+                        operator_name=t.operator_name,
+                        nom_start_time=t.nom_start_time,
+                        nom_end_time=t.nom_end_time,
+                        act_start_time=t.act_start_time,
+                        act_end_time=t.act_end_time,
+                        nom_start_stop_id=t.nom_start_stop_id,
+                        nom_end_stop_id=t.nom_end_stop_id,
+                        nom_total_distance=t.nom_total_distance,
+                        act_total_distance=t.act_total_distance,
+                        schedule_relationship=t.schedule_relationship,
+                    )
+                    for t in trip_orm
+                ],
+                stops=[
+                    ExportStopRow(
+                        stop_id=s.stop_id,
+                        stop_name=s.stop_name,
+                        stop_lat=s.stop_lat,
+                        stop_lon=s.stop_lon,
+                    )
+                    for s in stop_orm
+                ],
+                routes=[
+                    ExportRouteRow(
+                        route_id=r.route_id,
+                        route_name=r.route_name,
+                        concessionaire_id=r.concessionaire_id,
+                        concessionaire_name=r.concessionaire_name,
+                        operator_id=r.operator_id,
+                        operator_name=r.operator_name,
+                    )
+                    for r in route_orm
+                ],
+            )
 
     def _insert_nominal_routes_sync(self, instance_id: str, routes: list[RouteRecord]) -> None:
         if not routes:

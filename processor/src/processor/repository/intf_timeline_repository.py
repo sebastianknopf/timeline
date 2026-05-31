@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Protocol
 
+from ..exports.models import ExportDataSet
 from ..loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
 
 
@@ -132,4 +133,17 @@ class TimelineRepositoryInterface(Protocol):
         match any nominal trip row.  The lookup is based on route_id and the hour/minute of
         the nominal start time stored in dim_trips.  Returns the trip_id when exactly one match
         is found; returns None when no match or when the result is ambiguous.
+        """
+
+    async def get_export_dataset(
+        self,
+        instance_id: str,
+        from_date: date,
+        to_date: date,
+    ) -> ExportDataSet:
+        """Fetch timeline data for the given instance and half-open date interval [from_date, to_date).
+
+        Queries fact_stop_times for the date range, then collects the minimum consistent set of
+        referenced dim_trips, dim_stops, and dim_routes rows.  The instance_id column is not
+        included in the returned row objects.
         """

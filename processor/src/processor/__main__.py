@@ -13,6 +13,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from .config_verifier import ConfigurationError, ConfigurationVerifier
+from .exports import TimelineExport, TimelineExportExecutor
 from .loading.loading_service import LoadingService
 from .mapping.mapping_service import MappingService
 from .pipelines import GtfsNominalPipeline, GtfsRtTripUpdatesPipeline, TimelinePipelineExecutor
@@ -124,6 +125,9 @@ async def _run() -> None:
             mapping_service=mapping_service,
             gtfs_nominal_pipeline=gtfs_nominal_pipeline,
             gtfs_realtime_pipeline=gtfs_realtime_pipeline,
+        ),
+        export_executor=TimelineExportExecutor(
+            timeline_export=TimelineExport(repository=repository),
         ),
     )
 

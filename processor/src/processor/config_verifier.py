@@ -9,6 +9,9 @@ from croniter import croniter
 
 from .runtime_config import (
     AuthenticationConfig,
+    ExportConfig,
+    ExportPeriodConfig,
+    ExportProcessingConfig,
     InstanceConfig,
     MappingConfig,
     PipelineConfig,
@@ -25,11 +28,15 @@ class ConfigurationVerifier:
         self,
         mapping_root: Path,
         known_pipeline_names: set[str] | None = None,
+        known_export_names: set[str] | None = None,
     ) -> None:
         self._mapping_root = mapping_root.resolve()
         self._known_pipeline_names = known_pipeline_names or {
             "gtfs",
             "gtfsrt-tripupdates",
+        }
+        self._known_export_names = known_export_names or {
+            "timeline-export",
         }
 
     def load_and_validate(self, config_path: Path) -> ProcessorConfig:
@@ -76,7 +83,21 @@ class ConfigurationVerifier:
         for raw_pipeline in raw_pipelines:
             pipelines.append(self._parse_pipeline(instance_id, raw_pipeline))
 
-        return InstanceConfig(id=instance_id, pipelines=tuple(pipelines))
+        exports: list[ExportConfig] = []
+        raw_exports = raw_instance.get("export")
+        if raw_exports is not None:
+            if not isinstance(raw_exports, list):
+                raise ConfigurationError(
+                    f"Instance '{instance_id}' export must be a list."
+                )
+            for raw_export in raw_exports:
+                exports.append(self._parse_export(instance_id, raw_export))
+
+        return InstanceConfig(
+            id=instance_id,
+            pipelines=tuple(pipelines),
+            exports=tuple(exports),
+        )
 
     def _parse_pipeline(self, instance_id: str, raw_pipeline: Any) -> PipelineConfig:
         if not isinstance(raw_pipeline, dict):
@@ -144,6 +165,95 @@ class ConfigurationVerifier:
             parameters=parameters,
             mapping=mapping,
         )
+
+    def _parse_export(self, instance_id: str, raw_export: Any) -> ExportConfig:
+        if not isinstance(raw_export, dict):
+            raise ConfigurationError(
+                f"Exports in instance '{instance_id}' must be YAML objects."
+            )
+
+        export_id = self._require_non_empty_str(raw_export.get("id"), "export.id")
+        export_name = self._require_non_empty_str(
+            raw_export.get("name"),
+            f"export.name ({export_id})",
+        )
+
+        if export_name not in self._known_export_names:
+            raise ConfigurationError(
+                f"Export '{export_id}' has unknown name '{export_name}'."
+            )
+
+        cron_expression = self._require_non_empty_str(
+            raw_export.get("cron"),
+            f"export.cron ({export_id})",
+        )
+        if not croniter.is_valid(cron_expression):
+            raise ConfigurationError(
+                f"Export '{export_id}' has invalid cron expression '{cron_expression}'."
+            )
+
+        period = self._parse_export_period(raw_export.get("period"), export_id)
+        processing = self._parse_export_processing(raw_export.get("processing"), export_id)
+
+        return ExportConfig(
+            id=export_id,
+            name=export_name,
+            cron=cron_expression,
+            period=period,
+            processing=processing,
+        )
+
+    def _parse_export_period(self, raw_period: Any, export_id: str) -> ExportPeriodConfig:
+        if raw_period is None:
+            raise ConfigurationError(
+                f"Export '{export_id}' is missing required key 'period'."
+            )
+
+        if not isinstance(raw_period, dict):
+            raise ConfigurationError(
+                f"Export '{export_id}' period must be a YAML object."
+            )
+
+        raw_from = raw_period.get("from")
+        raw_to = raw_period.get("to")
+
+        if not isinstance(raw_from, int):
+            raise ConfigurationError(
+                f"Export '{export_id}' period.from must be an integer."
+            )
+        if not isinstance(raw_to, int):
+            raise ConfigurationError(
+                f"Export '{export_id}' period.to must be an integer."
+            )
+        if raw_from >= raw_to:
+            raise ConfigurationError(
+                f"Export '{export_id}' period.from must be less than period.to."
+            )
+
+        return ExportPeriodConfig(from_day=raw_from, to_day=raw_to)
+
+    def _parse_export_processing(
+        self,
+        raw_processing: Any,
+        export_id: str,
+    ) -> ExportProcessingConfig:
+        if raw_processing is None:
+            return ExportProcessingConfig()
+
+        if not isinstance(raw_processing, dict):
+            raise ConfigurationError(
+                f"Export '{export_id}' processing must be a YAML object."
+            )
+
+        raw_directory = raw_processing.get("directory")
+        if raw_directory is not None:
+            if not isinstance(raw_directory, str) or not raw_directory.strip():
+                raise ConfigurationError(
+                    f"Export '{export_id}' processing.directory must be a non-empty string path."
+                )
+            return ExportProcessingConfig(directory=Path(raw_directory.strip()))
+
+        return ExportProcessingConfig()
 
     def _parse_policy(self, raw_policy: Any, pipeline_id: str) -> str:
         if raw_policy is None:
