@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "5432:5432"
+      - "${DB_HOST_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -53,8 +53,8 @@ services:
     container_name: timeline-loki
     profiles: ["monitoring"]
     command: ["-config.file=/etc/loki/config.yml"]
-    ports:
-      - "3100:3100"
+    expose:
+      - "3100"
     volumes:
       - ./monitoring/loki/loki-config.yml:/etc/loki/config.yml:ro
 
@@ -87,7 +87,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "3000:3000"
+      - "${GRAFANA_HOST_PORT:-3000}:3000"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro

@@ -46,11 +46,12 @@ For log exploration through Grafana, both profiles are required because Grafana 
 
 The following container ports are published on the host and can be reached by external tools:
 
-| Service | Container Port | Host Port | Purpose |
-| --- | --- | --- | --- |
-| PostgreSQL (`db`) | 5432 | 5432 | Database access for the processor and external clients |
-| Loki (`loki`) | 3100 | 3100 | Log ingestion and query endpoint |
-| Grafana (`grafana`) | 3000 | 3000 | Dashboard and exploration UI |
+| Service | Container Port | Host Port | `.env` variable | Purpose |
+| --- | --- | --- | --- | --- |
+| PostgreSQL (`db`) | 5432 | `DB_HOST_PORT` (default 5432) | `DB_HOST_PORT` | Database access for the processor and external clients |
+| Grafana (`grafana`) | 3000 | `GRAFANA_HOST_PORT` (default 3000) | `GRAFANA_HOST_PORT` | Dashboard and exploration UI |
+
+Loki's port 3100 is exposed only within the Docker Compose network so that Promtail and Grafana can reach it. It is not published on the host.
 
 The processor and Promtail do not publish host ports.
 

@@ -43,6 +43,7 @@ foreach ($Line in Get-Content $EnvFile) {
 
 $GfUser = $EnvVars["GRAFANA_ADMIN_USER"]
 $GfPass = $EnvVars["GRAFANA_ADMIN_PASSWORD"]
+$GfPort = if ($EnvVars.ContainsKey("GRAFANA_HOST_PORT") -and $EnvVars["GRAFANA_HOST_PORT"]) { $EnvVars["GRAFANA_HOST_PORT"] } else { "3000" }
 
 if (-not $GfUser -or -not $GfPass) {
     Write-Error "GRAFANA_ADMIN_USER and GRAFANA_ADMIN_PASSWORD must both be set in .env."
@@ -61,7 +62,7 @@ if ($PsOutput -notmatch "grafana") {
     Write-Error "The Grafana service is not running. Start it with: docker compose --profile grafana up -d"
 }
 
-$BaseUrl   = "http://localhost:3000"
+$BaseUrl   = "http://localhost:${GfPort}"
 $AuthBytes = [System.Text.Encoding]::UTF8.GetBytes("${GfUser}:${GfPass}")
 $AuthB64   = [Convert]::ToBase64String($AuthBytes)
 $Headers   = @{ Authorization = "Basic $AuthB64"; "Content-Type" = "application/json" }

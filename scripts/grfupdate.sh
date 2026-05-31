@@ -35,6 +35,8 @@ parse_env() {
 
 GF_USER="$(parse_env GRAFANA_ADMIN_USER)"
 GF_PASS="$(parse_env GRAFANA_ADMIN_PASSWORD)"
+GF_PORT="$(parse_env GRAFANA_HOST_PORT)"
+GF_PORT="${GF_PORT:-3000}"
 
 if [[ -z "$GF_USER" || -z "$GF_PASS" ]]; then
     echo "ERROR: GRAFANA_ADMIN_USER and GRAFANA_ADMIN_PASSWORD must both be set in .env." >&2
@@ -50,7 +52,7 @@ if ! echo "$PS_OUTPUT" | grep -q "grafana"; then
     exit 1
 fi
 
-BASE_URL="http://localhost:3000"
+BASE_URL="http://localhost:${GF_PORT}"
 ALL_OK=true
 
 reload_endpoint() {
