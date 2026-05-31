@@ -86,6 +86,19 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
     ) -> None:
         await asyncio.to_thread(self._upsert_realtime_stop_times_sync, instance_id, stop_times)
 
+    async def get_nominal_trip(
+        self,
+        instance_id: str,
+        operation_day_date: date,
+        trip_id: str,
+    ) -> TripRecord | None:
+        return await asyncio.to_thread(
+            self._get_nominal_trip_sync,
+            instance_id,
+            operation_day_date,
+            trip_id,
+        )
+
     async def get_nominal_stop_times_for_trip(
         self,
         instance_id: str,
@@ -385,6 +398,43 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                         },
                     )
                     session.execute(upsert_stmt)
+
+    def _get_nominal_trip_sync(
+        self,
+        instance_id: str,
+        operation_day_date: date,
+        trip_id: str,
+    ) -> TripRecord | None:
+        with self._session_factory() as session:
+            stmt = (
+                select(TripDimension)
+                .where(TripDimension.instance_id == instance_id)
+                .where(TripDimension.operation_day_date == operation_day_date)
+                .where(TripDimension.trip_id == trip_id)
+            )
+            row = session.execute(stmt).scalars().first()
+
+        if row is None:
+            return None
+
+        return TripRecord(
+            operation_day_date=row.operation_day_date,
+            trip_id=row.trip_id,
+            route_id=row.route_id,
+            operator_id=row.operator_id,
+            operator_name=row.operator_name,
+            concessionaire_id=row.concessionaire_id,
+            concessionaire_name=row.concessionaire_name,
+            nom_start_time=row.nom_start_time,
+            nom_end_time=row.nom_end_time,
+            act_start_time=row.act_start_time,
+            act_end_time=row.act_end_time,
+            nom_start_stop_id=row.nom_start_stop_id,
+            nom_end_stop_id=row.nom_end_stop_id,
+            nom_total_distance=row.nom_total_distance,
+            act_total_distance=row.act_total_distance,
+            schedule_relationship=row.schedule_relationship,
+        )
 
     def _get_nominal_stop_times_for_trip_sync(
         self,

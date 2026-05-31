@@ -77,6 +77,15 @@ class RecordingRepository:
             if item.operation_day_date == operation_day_date and item.trip_id == trip_id
         ]
 
+    async def get_nominal_trip(
+        self,
+        instance_id: str,
+        operation_day_date: date,
+        trip_id: str,
+    ) -> None:
+        # Pipeline-level tests use stop-level distances directly; no nominal trip record needed.
+        return None
+
     async def find_nominal_trip_id_by_properties(
         self,
         instance_id: str,

@@ -108,6 +108,17 @@ class RecordingRepository(TimelineRepositoryInterface):
         self.calls.append(("upsert_realtime_stop_times", instance_id, len(stop_times)))
         self.realtime_stop_times.extend(stop_times)
 
+    async def get_nominal_trip(
+        self,
+        instance_id: str,
+        operation_day_date: date,
+        trip_id: str,
+    ) -> TripRecord | None:
+        for trip in self.nominal_trips:
+            if trip.operation_day_date == operation_day_date and trip.trip_id == trip_id:
+                return trip
+        return None
+
     async def get_nominal_stop_times_for_trip(
         self,
         instance_id: str,
@@ -1868,6 +1879,176 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, len(repository.realtime_trips))
         # CANCELLED → act_total_distance must be 0.0.
         self.assertEqual(0.0, repository.realtime_trips[0].act_total_distance)
+
+    async def test_act_total_distance_uses_nominal_trip_distance_when_stops_have_no_distances(self) -> None:
+        """When all nominal stop times have distance_from_start = 0.0 but the stored nominal
+        TripRecord carries a non-zero nom_total_distance (e.g. from the shape index), the
+        loading service must use that stored value for both nom_total_distance and
+        act_total_distance on a SCHEDULED trip.
+        """
+        now = datetime.now(UTC)
+        nom_base = now.replace(hour=8, minute=0, second=0, microsecond=0)
+        operation_day = nom_base.date()
+
+        nominal_trip_record = TripRecord(
+            operation_day_date=operation_day,
+            trip_id="trip-shape-dist",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+            nom_start_time=nom_base,
+            nom_end_time=nom_base + timedelta(minutes=20),
+            nom_start_stop_id="A",
+            nom_end_stop_id="C",
+            nom_total_distance=18.7,  # Stored from shape index; stops have no per-stop distances.
+        )
+
+        repository = RecordingRepository()
+        repository.nominal_trips = [nominal_trip_record]
+        repository.nominal_stop_times = [
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-shape-dist",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-shape-dist",
+                stop_id="B",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base + timedelta(minutes=10),
+                nom_departure_time=nom_base + timedelta(minutes=11),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-shape-dist",
+                stop_id="C",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base + timedelta(minutes=19),
+                nom_departure_time=nom_base + timedelta(minutes=20),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=3,
+            ),
+        ]
+
+        service = LoadingService(repository=repository)
+
+        trip = TripRecord(
+            operation_day_date=operation_day,
+            trip_id="trip-shape-dist",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+            schedule_relationship="SCHEDULED",
+        )
+        realtime = [
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-shape-dist",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=nom_base + timedelta(minutes=2),
+                act_departure_time=nom_base + timedelta(minutes=2, seconds=30),
+                stop_sequence=1,
+            ),
+        ]
+
+        await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=realtime,
+        )
+
+        self.assertEqual(1, len(repository.realtime_trips))
+        loaded = repository.realtime_trips[0]
+        # nom_total_distance must reflect the shape-index value stored in dim_trips.
+        self.assertAlmostEqual(18.7, loaded.nom_total_distance)
+        # SCHEDULED + shape-index nom_total_distance → act_total_distance must be 18.7 too.
+        self.assertAlmostEqual(18.7, loaded.act_total_distance)
+
+    async def test_act_total_distance_falls_back_to_stop_level_when_no_nominal_trip_stored(self) -> None:
+        """When get_nominal_trip returns None (no stored trip record) but nominal stop times
+        have non-zero distance_from_start values, act_total_distance must be derived from
+        the stop-level max as before.
+        """
+        now = datetime.now(UTC)
+        nom_base = now.replace(hour=9, minute=0, second=0, microsecond=0)
+        operation_day = nom_base.date()
+
+        repository = RecordingRepository()
+        # nominal_trips is empty → get_nominal_trip returns None.
+        repository.nominal_stop_times = [
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-stopd",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-stopd",
+                stop_id="B",
+                distance_from_start=9.3,
+                nom_arrival_time=nom_base + timedelta(minutes=15),
+                nom_departure_time=nom_base + timedelta(minutes=16),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+        ]
+
+        service = LoadingService(repository=repository)
+
+        trip = TripRecord(
+            operation_day_date=operation_day,
+            trip_id="trip-stopd",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+            schedule_relationship="SCHEDULED",
+        )
+        realtime = [
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-stopd",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=nom_base + timedelta(minutes=1),
+                act_departure_time=nom_base + timedelta(minutes=1, seconds=30),
+                stop_sequence=1,
+            ),
+        ]
+
+        await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=realtime,
+        )
+
+        self.assertEqual(1, len(repository.realtime_trips))
+        loaded = repository.realtime_trips[0]
+        # No nominal trip record → fall back to stop-level max = 9.3.
+        self.assertAlmostEqual(9.3, loaded.nom_total_distance)
+        self.assertAlmostEqual(9.3, loaded.act_total_distance)
 
 
 if __name__ == "__main__":

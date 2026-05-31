@@ -139,10 +139,17 @@ class LoadingService:
             normalized_stop_count=len(normalized_stop_times),
         )
 
+        nominal_trip = await self._repository.get_nominal_trip(
+            instance_id=instance_id,
+            operation_day_date=trip.operation_day_date,
+            trip_id=trip.trip_id,
+        )
+
         normalized_trip = self._derive_realtime_trip_fields(
             source_trip=trip,
             nominal_stop_times=nominal_stop_times,
             normalized_stop_times=normalized_stop_times,
+            nominal_trip=nominal_trip,
         )
 
         # Matching strategy hooks belong here while DB writes remain in the repository.
@@ -292,6 +299,7 @@ class LoadingService:
         source_trip: TripRecord,
         nominal_stop_times: list[StopTimeRecord],
         normalized_stop_times: list[StopTimeRecord],
+        nominal_trip: TripRecord | None = None,
     ) -> TripRecord:
         ordered_nominal = (
             sorted(nominal_stop_times, key=_stop_time_order_key)
@@ -329,6 +337,15 @@ class LoadingService:
             act_end_time = nom_end_time
 
         nom_total_distance = max(item.distance_from_start for item in ordered_nominal)
+
+        # Prefer the trip-level nom_total_distance stored by the nominal pipeline over the
+        # stop-level max.  The nominal pipeline may have derived nom_total_distance from the
+        # shape index when stop_times.shape_dist_traveled is absent, which correctly stores a
+        # non-zero trip distance in dim_trips even when all per-stop distance_from_start values
+        # are 0.0.  Without this fallback, act_total_distance would be 0.0 for SCHEDULED trips
+        # in feeds that lack per-stop distance data.
+        if nominal_trip is not None and (nominal_trip.nom_total_distance or 0.0) > 0.0:
+            nom_total_distance = nominal_trip.nom_total_distance  # type: ignore[assignment]
 
         # Derive act_total_distance based on the trip's schedule_relationship.
         # SCHEDULED trips are assumed to have operated their full nominal distance, so

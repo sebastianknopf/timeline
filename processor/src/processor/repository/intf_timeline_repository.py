@@ -94,6 +94,23 @@ class TimelineRepositoryInterface(Protocol):
     ) -> None:
         """Upsert stop time rows when realtime information arrives."""
 
+    async def get_nominal_trip(
+        self,
+        instance_id: str,
+        operation_day_date: date,
+        trip_id: str,
+    ) -> TripRecord | None:
+        """Read the stored nominal TripRecord for one trip and operation day.
+
+        Returns the full TripRecord as it was written by the nominal pipeline, including the
+        nom_total_distance that may have been derived from the shape index.  Returns None when
+        no matching row exists in dim_trips.
+
+        The loading service uses this to obtain the authoritative nom_total_distance when
+        deriving realtime trip fields, because stop-level distance_from_start values may all be
+        0.0 when the GTFS feed does not provide shape_dist_traveled in stop_times.txt.
+        """
+
     async def get_nominal_stop_times_for_trip(
         self,
         instance_id: str,
