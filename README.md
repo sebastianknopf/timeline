@@ -1,19 +1,19 @@
 # timeline
 
-Timeline is a transport operations data platform that combines planned schedule data and realtime operational updates into one queryable timeline.
+Timeline is a transport operations archiving and monitoring platform. It continuously ingests planned schedule data alongside realtime operational updates and stores them together in a queryable timeline.
 
-It is used to build a reliable operational view of what was planned, what actually happened, and where deviations occurred.
+It is used to build a persistent, auditable record of what was planned, what actually happened, and where deviations occurred — for analysis, reporting, and operational monitoring.
 
 In general, Timeline works as follows:
 
 1. The processor runs per configured instance with nominal and realtime pipelines.
 2. Pipelines fetch source data, normalize it, and hand it to a central load service.
 3. The load layer performs matching and atomic upsert operations into PostgreSQL.
-4. Dashboards and analytics consume the persisted timeline data for monitoring and reporting.
+4. Dashboards consume the archived timeline data for realtime monitoring and historical analysis.
 
-Base Docker and service setup for the timeline project with:
+Docker and service setup for the timeline project with:
 
-- processor (Python service, prepared for ETL)
+- processor (Python ETL and archiving service)
 - PostgreSQL
 - optional observability stack via profiles (`grafana` and `monitoring`)
 
@@ -103,6 +103,18 @@ The processor container is prepared so setuptools_scm can work:
 Current entrypoint:
 
 - Python module startup via `python -m processor`
+
+## Documentation
+
+| Document | Description |
+| --- | --- |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Overall system architecture, service topology, ports, data flow, and volumes |
+| [docs/PROCESSOR.md](docs/PROCESSOR.md) | Processor service internals: pipelines, matching logic, loading strategy, repository layer |
+| [docs/DATABASE.md](docs/DATABASE.md) | Relational schema, table definitions, and field semantics |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Runtime configuration model and YAML reference |
+| [docs/SCRIPTS.md](docs/SCRIPTS.md) | Helper scripts for database access and Grafana re-provisioning |
+| [docs/pipelines/GTFS.md](docs/pipelines/GTFS.md) | GTFS nominal pipeline specification |
+| [docs/pipelines/GTFSRT-TRIPUPDATES.md](docs/pipelines/GTFSRT-TRIPUPDATES.md) | GTFS-RT TripUpdates realtime pipeline specification |
 
 ## License
 
