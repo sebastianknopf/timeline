@@ -1,0 +1,991 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 19,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timeline-postgres"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "-",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#3a3f44",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 9,
+        "x": 0,
+        "y": 0
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "text": {
+          "titleSize": 15
+        },
+        "textMode": "value_and_name",
+        "wideLayout": false
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timeline-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  routes.route_name AS \"Linie\",\r\n  COALESCE(trips.concessionaire_name, routes.concessionaire_name) AS \"Konzessionär\",\r\n  COALESCE(trips.operator_name, routes.operator_name) AS \"Betreiber\"\r\nFROM\r\n  dim_trips trips\r\nINNER JOIN\r\n  dim_routes routes ON routes.route_id = trips.route_id\r\nWHERE\r\n  trips.instance_id = ANY(\r\n    STRING_TO_ARRAY(\r\n      REPLACE(REPLACE('${instance_id:raw}', '{', ''), '}', ''),\r\n      ','\r\n    )\r\n  )\r\n  AND operation_day_date = to_date('${operation_day_date}', 'DD.MM.YYYY')\r\n  AND trip_id = ${trip_id:sqlstring}",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [
+                  {
+                    "name": "nom_total_distance",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          },
+          "table": "dim_trips"
+        }
+      ],
+      "title": "Fahrdaten",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timeline-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "-",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "suffix: km"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 9,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "text": {
+          "titleSize": 18
+        },
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timeline-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  nom_total_distance AS \"Soll\",\r\n  act_total_distance AS \"Ist\"\r\nFROM\r\n  dim_trips\r\nWHERE\r\n  instance_id = ANY(\r\n    STRING_TO_ARRAY(\r\n      REPLACE(REPLACE('${instance_id:raw}', '{', ''), '}', ''),\r\n      ','\r\n    )\r\n  )\r\n  AND operation_day_date = to_date('${operation_day_date}', 'DD.MM.YYYY')\r\n  AND trip_id = ${trip_id:sqlstring}",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [
+                  {
+                    "name": "nom_total_distance",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          },
+          "table": "dim_trips"
+        }
+      ],
+      "title": "Kilometer",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timeline-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "-",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "suffix: min"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 14,
+        "y": 0
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "text": {
+          "titleSize": 18
+        },
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timeline-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  EXTRACT(\r\n    EPOCH\r\n    FROM\r\n      (nom_end_time - nom_start_time)\r\n  ) / 60 AS \"Soll\",\r\n  EXTRACT(\r\n    EPOCH\r\n    FROM\r\n      (act_end_time - act_start_time)\r\n  ) / 60 AS \"Ist\"\r\nFROM\r\n  dim_trips\r\nWHERE\r\n  instance_id = ANY(\r\n    STRING_TO_ARRAY(\r\n      REPLACE(REPLACE('${instance_id:raw}', '{', ''), '}', ''),\r\n      ','\r\n    )\r\n  )\r\n  AND operation_day_date = to_date('${operation_day_date}', 'DD.MM.YYYY')\r\n  AND trip_id = ${trip_id:sqlstring}",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [
+                  {
+                    "name": "nom_total_distance",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          },
+          "table": "dim_trips"
+        }
+      ],
+      "title": "Fahrplanzeit",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timeline-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1,
+          "mappings": [],
+          "noValue": "-",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "suffix: min"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 19,
+        "y": 0
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "text": {
+          "titleSize": 18
+        },
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timeline-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  AVG(EXTRACT(\r\n    EPOCH\r\n    FROM\r\n      (act_arrival_time - nom_arrival_time)\r\n  ) / 60) AS \"Abw. Ankunft\",\r\n  AVG(EXTRACT(\r\n    EPOCH\r\n    FROM\r\n      (act_departure_time - nom_departure_time)\r\n  ) / 60) AS \"Abw. Abfahrt\"\r\nFROM\r\n  fact_stop_times \r\nWHERE\r\n  instance_id = ANY(\r\n    STRING_TO_ARRAY(\r\n      REPLACE(REPLACE('${instance_id:raw}', '{', ''), '}', ''),\r\n      ','\r\n    )\r\n  )\r\n  AND operation_day_date = to_date('${operation_day_date}', 'DD.MM.YYYY')\r\n  AND trip_id = ${trip_id:sqlstring}\r\nGROUP BY\r\n  operation_day_date,\r\n  trip_id",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [
+                  {
+                    "name": "nom_total_distance",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          },
+          "table": "dim_trips"
+        }
+      ],
+      "title": "Pünktlichkeit Ø",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timeline-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [
+            {
+              "options": {
+                "ADDED": {
+                  "color": "blue",
+                  "index": 3,
+                  "text": "Zusatzhalt"
+                },
+                "SCHEDULED": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "Überwacht"
+                },
+                "SKIPPED": {
+                  "color": "red",
+                  "index": 2,
+                  "text": "Haltausfall"
+                },
+                "UNKNOWN": {
+                  "color": "#808080",
+                  "index": 0,
+                  "text": "Unbekannt"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "noValue": "-",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ankunftszeit (Soll)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              },
+              {
+                "id": "unit",
+                "value": "time: HH:mm"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Abfahrtszeit (Soll)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              },
+              {
+                "id": "unit",
+                "value": "time: HH:mm:ss"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ankunftszeit (Ist)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              },
+              {
+                "id": "unit",
+                "value": "time: HH:mm:ss"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Abfahrtszeit (Ist)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              },
+              {
+                "id": "unit",
+                "value": "time: HH:mm:ss"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Abw. Ankunft"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              },
+              {
+                "id": "unit",
+                "value": "suffix: min"
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Abw. Abfahrt"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              },
+              {
+                "id": "unit",
+                "value": "suffix: min"
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Haltestelle"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 250
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Strecke"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "unit",
+                "value": "suffix: km"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 26,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timeline-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  stops.stop_name AS \"Haltestelle\",\r\n  nom_arrival_time AS \"Ankunftszeit (Soll)\",\r\n  nom_departure_time AS \"Abfahrtszeit (Soll)\",\r\n  act_arrival_time AS \"Ankunftszeit (Ist)\",\r\n  act_departure_time AS \"Abfahrtszeit (Ist)\",\r\n  EXTRACT(\r\n    EPOCH\r\n    FROM\r\n      (act_arrival_time - nom_arrival_time)\r\n  ) / 60 AS \"Abw. Ankunft\",\r\n  EXTRACT(\r\n    EPOCH\r\n    FROM\r\n      (act_departure_time - nom_departure_time)\r\n  ) / 60 AS \"Abw. Abfahrt\",\r\n  distance_from_start AS \"Strecke\",\r\n  schedule_relationship AS \"Status\"\r\nFROM\r\n  fact_stop_times stop_times\r\n  INNER JOIN dim_stops stops ON stops.stop_id = stop_times.stop_id\r\nWHERE\r\n  stop_times.instance_id = ANY(\r\n    STRING_TO_ARRAY(\r\n      REPLACE(REPLACE('${instance_id:raw}', '{', ''), '}', ''),\r\n      ','\r\n    )\r\n  )\r\n  AND stop_times.operation_day_date = to_date('${operation_day_date}', 'DD.MM.YYYY')\r\n  AND stop_times.trip_id = ${trip_id:sqlstring}\r\nORDER BY\r\n  stop_sequence ASC",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [
+                  {
+                    "name": "stop_id",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "nom_arrival_time",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "nom_departure_time",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "act_arrival_time",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "act_departure_time",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "schedule_relationship",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "orderBy": {
+              "property": {
+                "name": "stop_sequence",
+                "type": "string"
+              },
+              "type": "property"
+            },
+            "orderByDirection": "ASC",
+            "whereJsonTree": {
+              "children1": [],
+              "id": "99a8b8aa-0123-4456-b89a-b19e79d4c9eb",
+              "type": "group"
+            }
+          },
+          "table": "fact_stop_times"
+        }
+      ],
+      "title": "Haltestellen / Fahrzeiten",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timeline-postgres"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 26,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "id": 2,
+      "options": {
+        "basemap": {
+          "config": {},
+          "name": "Layer 0",
+          "type": "default"
+        },
+        "controls": {
+          "mouseWheelZoom": true,
+          "showAttribution": true,
+          "showDebug": false,
+          "showMeasure": false,
+          "showScale": false,
+          "showZoom": true
+        },
+        "layers": [
+          {
+            "config": {
+              "showLegend": true,
+              "style": {
+                "color": {
+                  "field": "Abweichung",
+                  "fixed": "dark-green"
+                },
+                "opacity": 0.6,
+                "rotation": {
+                  "fixed": 0,
+                  "max": 360,
+                  "min": -360,
+                  "mode": "mod"
+                },
+                "size": {
+                  "field": "Abweichung",
+                  "fixed": 5,
+                  "max": 30,
+                  "min": 10
+                },
+                "symbol": {
+                  "fixed": "img/icons/marker/circle.svg",
+                  "mode": "fixed"
+                },
+                "symbolAlign": {
+                  "horizontal": "center",
+                  "vertical": "center"
+                },
+                "text": {
+                  "field": "Haltestelle",
+                  "fixed": "",
+                  "mode": "field"
+                },
+                "textConfig": {
+                  "fontSize": 8,
+                  "offsetX": 0,
+                  "offsetY": 0,
+                  "textAlign": "center",
+                  "textBaseline": "middle"
+                }
+              }
+            },
+            "filterData": {
+              "id": "byRefId",
+              "options": "A"
+            },
+            "location": {
+              "latitude": "Breitengrad",
+              "longitude": "Längengrad",
+              "mode": "coords"
+            },
+            "name": "Pünktlichkeit",
+            "tooltip": true,
+            "type": "markers"
+          }
+        ],
+        "tooltip": {
+          "mode": "details"
+        },
+        "view": {
+          "allLayers": true,
+          "id": "fit",
+          "lat": 0,
+          "lon": 0,
+          "zoom": 15
+        }
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timeline-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  stops.stop_name AS \"Haltestelle\",\r\n  stops.stop_lat AS \"Breitengrad\",\r\n  stops.stop_lon AS \"Längengrad\",\r\n  EXTRACT(\r\n      EPOCH\r\n      FROM\r\n        (act_arrival_time - nom_arrival_time)\r\n    ) / 60 AS \"Abweichung\"\r\nFROM\r\n  fact_stop_times stop_times\r\nINNER JOIN\r\n  dim_stops stops ON stops.stop_id = stop_times.stop_id\r\nWHERE\r\n  stop_times.instance_id = ANY(\r\n    STRING_TO_ARRAY(\r\n      REPLACE(REPLACE('${instance_id:raw}', '{', ''), '}', ''),\r\n      ','\r\n    )\r\n  )\r\n  AND stop_times.operation_day_date = to_date('${operation_day_date}', 'DD.MM.YYYY')\r\n  AND stop_times.trip_id = ${trip_id:sqlstring}\r\nORDER BY\r\n  stop_sequence ASC",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Fahrtverlauf",
+      "type": "geomap"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": [
+    "timeline",
+    "tripdetails"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "demo",
+          "value": "demo"
+        },
+        "hide": 2,
+        "name": "instance_id",
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "query": "demo",
+        "skipUrlSync": false,
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "31.05.2026",
+          "value": "31.05.2026"
+        },
+        "hide": 2,
+        "label": "Betriebstag",
+        "name": "operation_day_date",
+        "options": [],
+        "query": "31.05.2026",
+        "skipUrlSync": false,
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "de:vpe:04720_:1984",
+          "value": "de:vpe:04720_:1984"
+        },
+        "hide": 2,
+        "label": "Fahrt-ID",
+        "name": "trip_id",
+        "options": [],
+        "query": "de:vpe:04720_:1984",
+        "skipUrlSync": false,
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "15m"
+    ]
+  },
+  "timezone": "browser",
+  "title": "Fahrtdetails",
+  "uid": "afnn9dbm1lzi8c",
+  "version": 2,
+  "weekStart": ""
+}

@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": null,
+  "id": 2,
   "links": [],
   "panels": [
     {
@@ -62,18 +62,17 @@
   ],
   "refresh": "10s",
   "schemaVersion": 39,
-  "style": "light",
   "tags": [
     "timeline",
-    "logs"
+    "containerlogs"
   ],
   "templating": {
     "list": [
       {
         "current": {
-          "selected": true,
+          "selected": false,
           "text": "All",
-          "value": ".*"
+          "value": "$__all"
         },
         "datasource": {
           "type": "loki",
@@ -109,8 +108,8 @@
     ]
   },
   "timezone": "",
-  "title": "Timeline Container Logs",
+  "title": "Container Logs",
   "uid": "timeline-container-logs",
-  "version": 1,
+  "version": 4,
   "weekStart": ""
 }

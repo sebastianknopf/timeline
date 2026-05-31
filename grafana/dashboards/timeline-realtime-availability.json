@@ -18,8 +18,39 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 3,
-  "links": [],
+  "id": 21,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [
+        "timeline",
+        "overview"
+      ],
+      "targetBlank": false,
+      "title": "Übersicht",
+      "tooltip": "",
+      "type": "dashboards",
+      "url": ""
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [
+        "timeline",
+        "tripoverview"
+      ],
+      "targetBlank": false,
+      "title": "Fahrtenübersicht",
+      "tooltip": "",
+      "type": "dashboards",
+      "url": ""
+    }
+  ],
   "liveNow": false,
   "panels": [
     {
@@ -83,8 +114,8 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 10,
-        "w": 24,
+        "h": 29,
+        "w": 12,
         "x": 0,
         "y": 0
       },
@@ -101,7 +132,7 @@
           "placement": "bottom",
           "showLegend": false
         },
-        "orientation": "auto",
+        "orientation": "horizontal",
         "showValue": "auto",
         "stacking": "none",
         "tooltip": {
@@ -256,10 +287,10 @@
         ]
       },
       "gridPos": {
-        "h": 11,
-        "w": 24,
-        "x": 0,
-        "y": 10
+        "h": 29,
+        "w": 12,
+        "x": 12,
+        "y": 0
       },
       "id": 1,
       "options": {
@@ -273,7 +304,7 @@
           "placement": "bottom",
           "showLegend": true
         },
-        "orientation": "auto",
+        "orientation": "horizontal",
         "showValue": "never",
         "stacking": "normal",
         "text": {
@@ -357,14 +388,15 @@
   "schemaVersion": 39,
   "tags": [
     "realtime",
-    "availability"
+    "availability",
+    "timeline"
   ],
   "templating": {
     "list": [
       {
         "allValue": "",
         "current": {
-          "selected": true,
+          "selected": false,
           "text": [
             "demo"
           ],
@@ -424,10 +456,16 @@
         "current": {
           "selected": true,
           "text": [
-            "All"
+            "734",
+            "735",
+            "743",
+            "744"
           ],
           "value": [
-            "$__all"
+            "734",
+            "735",
+            "743",
+            "744"
           ]
         },
         "datasource": {
@@ -451,8 +489,8 @@
     ]
   },
   "time": {
-    "from": "now/d",
-    "to": "now/d"
+    "from": "now-6h",
+    "to": "now"
   },
   "timepicker": {
     "hidden": false,
@@ -461,8 +499,8 @@
     ]
   },
   "timezone": "browser",
-  "title": "Verfügbarkeit Echtzeitdaten",
+  "title": "Verfügbarkeit",
   "uid": "efn51w25mcum8b",
-  "version": 7,
+  "version": 4,
   "weekStart": ""
 }

@@ -1,0 +1,760 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 18,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [
+        "timeline",
+        "overview"
+      ],
+      "targetBlank": false,
+      "title": "Übersicht",
+      "tooltip": "",
+      "type": "dashboards",
+      "url": ""
+    },
+    {
+      "asDropdown": true,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [
+        "timeline",
+        "realtime"
+      ],
+      "targetBlank": false,
+      "title": "Echtzeit",
+      "tooltip": "",
+      "type": "dashboards",
+      "url": ""
+    }
+  ],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timeline-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "links": [],
+          "mappings": [
+            {
+              "options": {
+                "CANCELLED": {
+                  "color": "red",
+                  "index": 2,
+                  "text": "Fahrtausfall"
+                },
+                "SCHEDULED": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "Überwacht"
+                },
+                "UNKNOWN": {
+                  "color": "#808080",
+                  "index": 0,
+                  "text": "Unbekannt"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "noValue": "-",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Betriebstag"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 241
+              },
+              {
+                "id": "unit",
+                "value": "time:DD.MM.YYYY"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Abfahrtszeit (Soll)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 155
+              },
+              {
+                "id": "unit",
+                "value": "time: HH:mm"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Abfahrtszeit (Ist)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 155
+              },
+              {
+                "id": "unit",
+                "value": "time: HH:mm"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ankunftszeit (Soll)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 155
+              },
+              {
+                "id": "unit",
+                "value": "time: HH:mm"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ankunftszeit (Ist)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 155
+              },
+              {
+                "id": "unit",
+                "value": "time: HH:mm"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Kilometer (Soll)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:km"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Kilometer (Ist)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:km"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fahrplanzeit (Soll)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:h"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fahrplanzeit (Ist)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:h"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Konzessionär"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 270
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Betriebstag"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 115
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Linie"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 75
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Betreiber"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 270
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fahrt-ID"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": true,
+                    "title": "Fahrtdetails",
+                    "url": "/d/afnn9dbm1lzi8c/fahrtdetails?var-trip_id=${__data.fields[\"Fahrt-ID\"]}\n&var-operation_day_date=${__data.fields[\"Betriebstag\"]}\n&var-instance_id=${instance}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Min. Abweichung"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 160
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "suffix: min"
+              },
+              {
+                "id": "color"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Max. Abweichung"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 160
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "suffix: min"
+              },
+              {
+                "id": "color"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 29,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "enablePagination": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": true
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timeline-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH trip_delays AS (\r\n  SELECT\r\n    instance_id,\r\n    operation_day_date,\r\n    trip_id,\r\n    MIN(\r\n      EXTRACT(\r\n        EPOCH\r\n        FROM\r\n          (\r\n            COALESCE(act_arrival_time, act_departure_time) - COALESCE(nom_arrival_time, nom_departure_time)\r\n          )\r\n      ) / 60.0\r\n    ) AS min_delay_minutes,\r\n    MAX(\r\n      EXTRACT(\r\n        EPOCH\r\n        FROM\r\n          (\r\n            COALESCE(act_arrival_time, act_departure_time) - COALESCE(nom_arrival_time, nom_departure_time)\r\n          )\r\n      ) / 60.0\r\n    ) AS max_delay_minutes\r\n  FROM\r\n    fact_stop_times\r\n  WHERE\r\n    operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n    AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n    AND instance_id IN (${instance:sqlstring})\r\n  GROUP BY\r\n    instance_id,\r\n    operation_day_date,\r\n    trip_id\r\n)\r\nSELECT\r\n  trips.operation_day_date AS \"Betriebstag\",\r\n  trips.trip_id AS \"Fahrt-ID\",\r\n  routes.route_name AS \"Linie\",\r\n  COALESCE(\r\n    trips.concessionaire_name,\r\n    routes.concessionaire_name\r\n  ) AS \"Konzessionär\",\r\n  COALESCE(\r\n    trips.operator_name,\r\n    routes.operator_name\r\n  ) AS \"Betreiber\",\r\n  trips.nom_start_time AS \"Abfahrtszeit (Soll)\",\r\n  trips.act_start_time AS \"Abfahrtszeit (Ist)\",\r\n  start_stop.stop_name AS \"Start\",\r\n  trips.nom_end_time AS \"Ankunftszeit (Soll)\",\r\n  trips.act_end_time AS \"Ankunftszeit (Ist)\",\r\n  end_stop.stop_name AS \"Ziel\",\r\n  trips.nom_total_distance AS \"Kilometer (Soll)\",\r\n  trips.act_total_distance AS \"Kilometer (Ist)\",\r\n  EXTRACT(\r\n    EPOCH\r\n    FROM\r\n      (\r\n        trips.nom_end_time - trips.nom_start_time\r\n      )\r\n  ) / 3600.0 AS \"Fahrplanzeit (Soll)\",\r\n  EXTRACT(\r\n    EPOCH\r\n    FROM\r\n      (\r\n        trips.act_end_time - trips.act_start_time\r\n      )\r\n  ) / 3600.0 AS \"Fahrplanzeit (Ist)\",\r\n  trip_delays.min_delay_minutes AS \"Min. Abweichung\",\r\n  trip_delays.max_delay_minutes AS \"Max. Abweichung\",\r\n  trips.schedule_relationship AS \"Status\"\r\nFROM\r\n  dim_trips trips\r\n  INNER JOIN dim_routes routes ON routes.route_id = trips.route_id\r\n  INNER JOIN dim_stops start_stop ON start_stop.stop_id = trips.nom_start_stop_id\r\n  INNER JOIN dim_stops end_stop ON end_stop.stop_id = trips.nom_end_stop_id\r\n  LEFT JOIN trip_delays ON trip_delays.instance_id = trips.instance_id\r\n  AND trip_delays.operation_day_date = trips.operation_day_date\r\n  AND trip_delays.trip_id = trips.trip_id\r\nWHERE\r\n  trips.operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND trips.instance_id IN (${instance:sqlstring})\r\n  AND COALESCE(\r\n    trips.concessionaire_name,\r\n    routes.concessionaire_name\r\n  ) IN (${concessionaire:sqlstring})\r\n  AND routes.route_name IN (${route:sqlstring})\r\nORDER BY\r\n  trips.nom_start_time;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [
+                  {
+                    "name": "operation_day_date",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "trip_id",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "nom_start_time",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "nom_end_time",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "act_start_time",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "act_end_time",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "nom_total_distance",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "act_total_distance",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "schedule_relationship",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          },
+          "table": "dim_trips"
+        }
+      ],
+      "title": "Fahrtenliste",
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "byVariable": true,
+            "include": {
+              "variable": "$columns"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": [
+    "timeline",
+    "tripoverview"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "demo",
+          "value": "demo"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "timeline-postgres"
+        },
+        "definition": "SELECT DISTINCT instance_id FROM fact_stop_times;",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Instanz",
+        "multi": false,
+        "name": "instance",
+        "options": [],
+        "query": "SELECT DISTINCT instance_id FROM fact_stop_times;",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "timeline-postgres"
+        },
+        "definition": "SELECT DISTINCT concessionaire_name FROM dim_trips WHERE concessionaire_name IS NOT NULL\nUNION\nSELECT DISTINCT concessionaire_name FROM dim_routes WHERE concessionaire_name IS NOT NULL",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Konzessionär",
+        "multi": true,
+        "name": "concessionaire",
+        "options": [],
+        "query": "SELECT DISTINCT concessionaire_name FROM dim_trips WHERE concessionaire_name IS NOT NULL\nUNION\nSELECT DISTINCT concessionaire_name FROM dim_routes WHERE concessionaire_name IS NOT NULL",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": [
+            "734",
+            "735",
+            "743",
+            "744"
+          ],
+          "value": [
+            "734",
+            "735",
+            "743",
+            "744"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "timeline-postgres"
+        },
+        "definition": "SELECT DISTINCT route_name FROM dim_routes",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Linie",
+        "multi": true,
+        "name": "route",
+        "options": [],
+        "query": "SELECT DISTINCT route_name FROM dim_routes",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 7,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "hide": 0,
+        "includeAll": true,
+        "label": "Spalten",
+        "multi": true,
+        "name": "columns",
+        "options": [
+          {
+            "selected": true,
+            "text": "All",
+            "value": "$__all"
+          },
+          {
+            "selected": false,
+            "text": "Betriebstag",
+            "value": "Betriebstag"
+          },
+          {
+            "selected": false,
+            "text": "Linie",
+            "value": "Linie"
+          },
+          {
+            "selected": false,
+            "text": "Fahrt-ID",
+            "value": "Fahrt-ID"
+          },
+          {
+            "selected": false,
+            "text": "Konzessionär",
+            "value": "Konzessionär"
+          },
+          {
+            "selected": false,
+            "text": "Betreiber",
+            "value": "Betreiber"
+          },
+          {
+            "selected": false,
+            "text": "Abfahrtszeit (Soll)",
+            "value": "Abfahrtszeit (Soll)"
+          },
+          {
+            "selected": false,
+            "text": "Abfahrtszeit (Ist)",
+            "value": "Abfahrtszeit (Ist)"
+          },
+          {
+            "selected": false,
+            "text": "Start",
+            "value": "Start"
+          },
+          {
+            "selected": false,
+            "text": "Ankunftszeit (Soll)",
+            "value": "Ankunftszeit (Soll)"
+          },
+          {
+            "selected": false,
+            "text": "Ankunftszeit (Ist)",
+            "value": "Ankunftszeit (Ist)"
+          },
+          {
+            "selected": false,
+            "text": "Ziel",
+            "value": "Ziel"
+          },
+          {
+            "selected": false,
+            "text": "Kilometer (Soll)",
+            "value": "Kilometer (Soll)"
+          },
+          {
+            "selected": false,
+            "text": "Kilometer (Ist)",
+            "value": "Kilometer (Ist)"
+          },
+          {
+            "selected": false,
+            "text": "Fahrplanzeit (Soll)",
+            "value": "Fahrplanzeit (Soll)"
+          },
+          {
+            "selected": false,
+            "text": "Fahrplanzeit (Ist)",
+            "value": "Fahrplanzeit (Ist)"
+          },
+          {
+            "selected": false,
+            "text": "Min. Abweichung",
+            "value": "Min. Abweichung"
+          },
+          {
+            "selected": false,
+            "text": "Max. Abweichung",
+            "value": "Max. Abweichung"
+          },
+          {
+            "selected": false,
+            "text": "Status",
+            "value": "Status"
+          }
+        ],
+        "query": "Betriebstag, Linie, Fahrt-ID, Konzessionär, Betreiber, Abfahrtszeit (Soll), Abfahrtszeit (Ist), Start, Ankunftszeit (Soll), Ankunftszeit (Ist), Ziel, Kilometer (Soll), Kilometer (Ist), Fahrplanzeit (Soll), Fahrplanzeit (Ist), Min. Abweichung, Max. Abweichung, Status",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "15m"
+    ]
+  },
+  "timezone": "browser",
+  "title": "Fahrtübersicht",
+  "uid": "dfnn34s7l6ubka",
+  "version": 2,
+  "weekStart": ""
+}
