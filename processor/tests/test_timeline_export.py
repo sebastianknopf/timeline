@@ -115,20 +115,23 @@ def _make_instance(export: ExportConfig) -> InstanceConfig:
 
 class TimelineExportTests(unittest.IsolatedAsyncioTestCase):
     async def test_repository_called_with_correct_date_range(self) -> None:
-        dataset = ExportDataSet(stop_times=[], trips=[], stops=[], routes=[])
-        repository = RecordingExportRepository(dataset)
-        export = _make_export_config(from_day=-1, to_day=0)
-        instance = _make_instance(export)
-        export_obj = TimelineExport(repository=repository)
+        import tempfile
 
-        current_date = date(2026, 5, 31)
-        await export_obj.execute(instance=instance, export=export, current_date=current_date)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            dataset = ExportDataSet(stop_times=[], trips=[], stops=[], routes=[])
+            repository = RecordingExportRepository(dataset)
+            export = _make_export_config(from_day=-1, to_day=0, directory=Path(tmp_dir))
+            instance = _make_instance(export)
+            export_obj = TimelineExport(repository=repository)
 
-        self.assertEqual(len(repository.calls), 1)
-        instance_id, from_date, to_date = repository.calls[0]
-        self.assertEqual(instance_id, "demo")
-        self.assertEqual(from_date, date(2026, 5, 30))
-        self.assertEqual(to_date, date(2026, 5, 31))
+            current_date = date(2026, 5, 31)
+            await export_obj.execute(instance=instance, export=export, current_date=current_date)
+
+            self.assertEqual(len(repository.calls), 1)
+            instance_id, from_date, to_date = repository.calls[0]
+            self.assertEqual(instance_id, "demo")
+            self.assertEqual(from_date, date(2026, 5, 30))
+            self.assertEqual(to_date, date(2026, 5, 31))
 
     async def test_zip_contains_all_four_txt_files(self, tmp_path: Path | None = None) -> None:
         import tempfile
