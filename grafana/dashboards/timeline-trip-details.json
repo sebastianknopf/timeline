@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 19,
+  "id": 2,
   "links": [],
   "panels": [
     {
@@ -893,7 +893,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\r\n  stops.stop_name AS \"Haltestelle\",\r\n  stops.stop_lat AS \"Breitengrad\",\r\n  stops.stop_lon AS \"Längengrad\",\r\n  EXTRACT(\r\n      EPOCH\r\n      FROM\r\n        (act_arrival_time - nom_arrival_time)\r\n    ) / 60 AS \"Abweichung\"\r\nFROM\r\n  fact_stop_times stop_times\r\nINNER JOIN\r\n  dim_stops stops ON stops.stop_id = stop_times.stop_id\r\nWHERE\r\n  stop_times.instance_id = ANY(\r\n    STRING_TO_ARRAY(\r\n      REPLACE(REPLACE('${instance_id:raw}', '{', ''), '}', ''),\r\n      ','\r\n    )\r\n  )\r\n  AND stop_times.operation_day_date = to_date('${operation_day_date}', 'DD.MM.YYYY')\r\n  AND stop_times.trip_id = ${trip_id:sqlstring}\r\nORDER BY\r\n  stop_sequence ASC",
+          "rawSql": "SELECT\r\n  stops.stop_name AS \"Haltestelle\",\r\n  stops.stop_lat AS \"Breitengrad\",\r\n  stops.stop_lon AS \"Längengrad\",\r\n  GREATEST(\r\n    EXTRACT(\r\n      EPOCH\r\n      FROM\r\n        (act_arrival_time - nom_arrival_time)\r\n    ) / 60,\r\n    EXTRACT(\r\n      EPOCH\r\n      FROM\r\n        (act_departure_time - nom_departure_time)\r\n    ) / 60\r\n  ) AS \"Abweichung\"\r\nFROM\r\n  fact_stop_times stop_times\r\nINNER JOIN\r\n  dim_stops stops ON stops.stop_id = stop_times.stop_id\r\nWHERE\r\n  stop_times.instance_id = ANY(\r\n    STRING_TO_ARRAY(\r\n      REPLACE(REPLACE('${instance_id:raw}', '{', ''), '}', ''),\r\n      ','\r\n    )\r\n  )\r\n  AND stop_times.operation_day_date = to_date('${operation_day_date}', 'DD.MM.YYYY')\r\n  AND stop_times.trip_id = ${trip_id:sqlstring}\r\nORDER BY\r\n  stop_sequence ASC",
           "refId": "A",
           "sql": {
             "columns": [
@@ -935,7 +935,7 @@
         "name": "instance_id",
         "options": [
           {
-            "selected": true,
+            "selected": false,
             "text": "",
             "value": ""
           }
@@ -947,28 +947,28 @@
       {
         "current": {
           "selected": false,
-          "text": "31.05.2026",
-          "value": "31.05.2026"
+          "text": "01.06.2026",
+          "value": "01.06.2026"
         },
         "hide": 2,
         "label": "Betriebstag",
         "name": "operation_day_date",
         "options": [],
-        "query": "31.05.2026",
+        "query": "01.06.2026",
         "skipUrlSync": false,
         "type": "textbox"
       },
       {
         "current": {
           "selected": false,
-          "text": "de:vpe:04720_:1984",
-          "value": "de:vpe:04720_:1984"
+          "text": "de:vpe:03006_:4627",
+          "value": "de:vpe:03006_:4627"
         },
         "hide": 2,
         "label": "Fahrt-ID",
         "name": "trip_id",
         "options": [],
-        "query": "de:vpe:04720_:1984",
+        "query": "de:vpe:03006_:4627",
         "skipUrlSync": false,
         "type": "textbox"
       }
