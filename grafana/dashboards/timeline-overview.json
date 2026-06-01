@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 4,
+  "id": 5,
   "links": [
     {
       "asDropdown": true,
@@ -284,7 +284,7 @@
           "format": "table",
           "hide": false,
           "rawQuery": true,
-          "rawSql": "SELECT\r\n  stops.stop_lat,\r\n  stops.stop_lon,\r\n  AVG(\r\n    EXTRACT(\r\n      EPOCH\r\n      FROM\r\n        (act_arrival_time - nom_arrival_time)\r\n    ) / 60\r\n  ) AS Verspätung\r\nFROM\r\n  fact_stop_times stop_times\r\n  INNER JOIN dim_stops stops ON stop_times.stop_id = stops.stop_id\r\n  INNER JOIN dim_trips trips ON stop_times.trip_id = trips.trip_id\r\nWHERE\r\n  stop_times.operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND stop_times.instance_id IN (${instance:sqlstring})\r\n  AND stop_times.act_arrival_time IS NOT NULL\r\nGROUP BY\r\n  stops.stop_lat,\r\n  stops.stop_lon,\r\n  stop_times.stop_id",
+          "rawSql": "SELECT\r\n  stops.stop_lat,\r\n  stops.stop_lon,\r\n  AVG(\r\n    GREATEST(\r\n      EXTRACT(\r\n        EPOCH\r\n        FROM\r\n          (act_arrival_time - nom_arrival_time)\r\n      ) / 60,\r\n      EXTRACT(\r\n        EPOCH\r\n        FROM\r\n          (act_departure_time - nom_departure_time)\r\n      ) / 60\r\n    )\r\n  ) AS Verspätung\r\nFROM\r\n  fact_stop_times stop_times\r\n  INNER JOIN dim_stops stops ON stop_times.stop_id = stops.stop_id\r\n  INNER JOIN dim_trips trips ON stop_times.trip_id = trips.trip_id\r\nWHERE\r\n  stop_times.operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND stop_times.instance_id IN (${instance:sqlstring})\r\n  AND stop_times.act_arrival_time IS NOT NULL\r\nGROUP BY\r\n  stops.stop_lat,\r\n  stops.stop_lon,\r\n  stop_times.stop_id",
           "refId": "MeanDelayQuery",
           "sql": {
             "columns": [
@@ -672,13 +672,9 @@
     "list": [
       {
         "current": {
-          "selected": true,
-          "text": [
-            "demo"
-          ],
-          "value": [
-            "demo"
-          ]
+          "selected": false,
+          "text": "demo",
+          "value": "demo"
         },
         "datasource": {
           "type": "grafana-postgresql-datasource",
@@ -712,6 +708,6 @@
   "timezone": "browser",
   "title": "Übersicht",
   "uid": "dfnjo7bwplq0wf",
-  "version": 28,
+  "version": 2,
   "weekStart": ""
 }
