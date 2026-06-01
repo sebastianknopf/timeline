@@ -159,7 +159,7 @@ class TimelineExportTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("stops.txt", names)
                 self.assertIn("routes.txt", names)
 
-    async def test_zip_filename_contains_date_range(self) -> None:
+    async def test_zip_filename_uses_export_impl_name_and_uuid(self) -> None:
         import re
         import tempfile
 
@@ -183,11 +183,8 @@ class TimelineExportTests(unittest.IsolatedAsyncioTestCase):
             zip_files = list(directory.glob("*.zip"))
             self.assertEqual(len(zip_files), 1)
             name = zip_files[0].name
-            self.assertIn("2026-05-30", name)
-            self.assertIn("2026-05-31", name)
-            # UUID appended before the extension, separated by "-"
             uuid_pattern = re.compile(
-                r"-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.zip$"
+                r"^timeline-export-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.zip$"
             )
             self.assertRegex(name, uuid_pattern)
 

@@ -193,7 +193,7 @@ class TimelineExport(ExportBase):
 
         directory = export.processing.directory or _DEFAULT_EXPORT_DIRECTORY
         await asyncio.to_thread(
-            self._write_zip, directory, export.id, from_date, to_date, run_id, zip_bytes
+            self._write_zip, directory, export.name, run_id, zip_bytes
         )
 
         log.info(
@@ -207,13 +207,11 @@ class TimelineExport(ExportBase):
     @staticmethod
     def _write_zip(
         directory: Path,
-        export_id: str,
-        from_date: date,
-        to_date: date,
+        export_name: str,
         run_id: uuid.UUID,
         zip_bytes: bytes,
     ) -> None:
         directory.mkdir(parents=True, exist_ok=True)
-        filename = f"{export_id}_{from_date.isoformat()}_{to_date.isoformat()}-{run_id}.zip"
+        filename = f"{export_name}-{run_id}.zip"
         output_path = directory / filename
         output_path.write_bytes(zip_bytes)
