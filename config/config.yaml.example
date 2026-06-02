@@ -39,4 +39,4 @@ instance:
         processing:
           # Optional: maps to PROCESSOR_EXPORT_DIR on the host via docker-compose volume.
           # If omitted, files are stored only inside the container.
-          directory: "/exports"
+          directory: "/var/data/exports"

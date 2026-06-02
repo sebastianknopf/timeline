@@ -47,7 +47,7 @@ services:
         source: ${PROCESSOR_MAPPING_DIR:-.}
         target: /etc/mapping
         read_only: true
-      - ${PROCESSOR_EXPORT_DIR:-processor_exports}:/exports
+      - ${PROCESSOR_EXPORT_DIR:-processor_exports}:/var/data/exports
 
   loki:
     image: grafana/loki:3.1.1
