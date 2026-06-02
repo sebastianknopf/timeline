@@ -903,14 +903,14 @@ class GtfsRtTripUpdatesPipelineTests(unittest.IsolatedAsyncioTestCase):
         # act_end_time must use arrival, not departure, for the last stop.
         self.assertEqual(last_arrival.replace(microsecond=0), trip.act_end_time)
 
-    async def test_act_start_and_end_use_first_and_last_normalized_stop_regardless_of_schedule_relationship(self) -> None:
-        """act_start_time and act_end_time use the first/last normalized stop regardless of schedule_relationship.
+    async def test_act_start_uses_nom_departure_of_first_nominal_stop_when_no_realtime_coverage(self) -> None:
+        """act_start_time falls back to nom_departure_time of the first nominal stop when
+        that stop has no realtime coverage and no preceding delay to propagate.
 
-        The nominal first stop (S1) has no realtime coverage (no update, no preceding
-        propagation), so it is absent from normalized_stop_times.  The nominal last stop
-        (S3) is covered only by propagation from S2 and therefore carries
-        schedule_relationship = SCHEDULED.  Both act_start_time and act_end_time must
-        still be derived from whatever realtime data is present.
+        The nominal first stop (S1) has no realtime data — it is absent from
+        normalized_stop_times.  act_start_time must be anchored to S1's nom_departure_time
+        rather than using S2's actual departure (which would produce a mid-trip start time).
+        act_end_time must use the last covered stop — S3 propagated from S2.
         """
         pipeline = PipelineConfig(
             id="realtime-main",
@@ -997,8 +997,8 @@ class GtfsRtTripUpdatesPipelineTests(unittest.IsolatedAsyncioTestCase):
         trip = repository.realtime_trips[0]
 
         # S1 has no realtime data and no preceding propagation → absent from normalized.
-        # act_start_time must use S2 (first in normalized), not S1's nominal departure.
-        expected_start = (nom_s2_dep + timedelta(seconds=delay_s))
+        # act_start_time must fall back to S1's nom_departure_time, not S2's actual departure.
+        expected_start = nom_s1_dep
         self.assertEqual(expected_start, trip.act_start_time)
 
         # S3 is propagated (SCHEDULED) from S2 → act_end_time uses S3's arrival.

@@ -313,21 +313,27 @@ class LoadingService:
         nom_start_time = first_stop.nom_departure_time
         nom_end_time = last_stop.nom_departure_time
 
-        # Use the first and last entries of normalized_stop_times directly instead of
-        # looking up by nominal stop_sequence.  normalized_stop_times is already sorted
-        # by _stop_time_order_key, so index 0 is the earliest and index -1 is the latest
-        # stop with realtime coverage.  This guarantees that act_start_time and
-        # act_end_time always reflect the earliest/latest available realtime data
-        # regardless of schedule_relationship and regardless of whether the nominal
-        # boundary stops appear in the realtime feed.
-        rt_first = normalized_stop_times[0]
-        rt_last = normalized_stop_times[-1]
+        # act_start_time must always reflect the first NOMINAL stop regardless of how many
+        # leading stops are missing from the realtime feed.  Look up whether the first
+        # nominal stop has an entry in normalized_stop_times (it may not when the feed
+        # only covers a subset of stops and no prior delay has been propagated forward).
+        # If the first nominal stop is present and carries act_departure_time, use that;
+        # otherwise fall back to nom_start_time so that the trip boundary is never driven
+        # by a stop somewhere in the middle of the trip.
+        rt_first_nominal = next(
+            (s for s in normalized_stop_times if s.stop_sequence == first_stop.stop_sequence),
+            None,
+        )
 
         act_start_time = (
-            rt_first.act_departure_time
-            if rt_first.act_departure_time is not None
+            rt_first_nominal.act_departure_time
+            if rt_first_nominal is not None and rt_first_nominal.act_departure_time is not None
             else nom_start_time
         )
+
+        # act_end_time uses the last entry in normalized_stop_times (earliest/latest
+        # available realtime coverage), which is correct for the end boundary.
+        rt_last = normalized_stop_times[-1]
 
         if rt_last.act_arrival_time is not None:
             act_end_time = rt_last.act_arrival_time
