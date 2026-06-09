@@ -18,12 +18,12 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 6,
+  "id": 8,
   "links": [
     {
       "asDropdown": false,
       "icon": "external link",
-      "includeVars": true,
+      "includeVars": false,
       "keepTime": true,
       "tags": [
         "timeline",
@@ -36,7 +36,6 @@
       "url": ""
     }
   ],
-  "liveNow": false,
   "panels": [
     {
       "datasource": {
@@ -49,49 +48,30 @@
             "mode": "thresholds"
           },
           "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "axisSoftMax": 100,
-            "axisSoftMin": 0,
-            "fillOpacity": 80,
-            "gradientMode": "hue",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
             },
-            "lineWidth": 1,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "filterable": true,
+            "inspect": false
           },
+          "decimals": 1,
           "mappings": [],
-          "max": 100,
-          "min": 0,
+          "noValue": "-",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "green",
                 "value": null
               },
               {
-                "color": "orange",
-                "value": 25
-              },
-              {
                 "color": "yellow",
-                "value": 50
+                "value": 3
               },
               {
-                "color": "green",
-                "value": 75
+                "color": "red",
+                "value": 5
               }
             ]
           }
@@ -100,46 +80,89 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Echtzeitquote"
+              "options": "Abw. Ankunft"
             },
             "properties": [
               {
                 "id": "unit",
-                "value": "percent"
+                "value": "suffix: min"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Abw. Abfahrt"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: min"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Anz. Soll-Abfahrten"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Anz. Ist-Abfahrten"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
               }
             ]
           }
         ]
       },
       "gridPos": {
-        "h": 6,
-        "w": 24,
+        "h": 11,
+        "w": 13,
         "x": 0,
         "y": 0
       },
       "id": 2,
       "options": {
-        "barRadius": 0,
-        "barWidth": 0.85,
-        "colorByField": "Anteil (%)",
-        "fullHighlight": false,
-        "groupWidth": 0.7,
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": false
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
         },
-        "orientation": "vertical",
-        "showValue": "auto",
-        "stacking": "none",
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        },
-        "xField": "Linie",
-        "xTickLabelRotation": -45,
-        "xTickLabelSpacing": 0
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Abw. Ankunft"
+          }
+        ]
       },
       "pluginVersion": "11.1.4",
       "targets": [
@@ -151,7 +174,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\r\n  routes.route_name AS \"Linie\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship <> 'UNKNOWN'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"Echtzeitquote\"\r\nFROM\r\n  dim_trips trips\r\n  INNER JOIN dim_routes routes ON routes.route_id = trips.route_id\r\nWHERE\r\n  operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND trips.instance_id IN (${instance:sqlstring})\r\n  AND COALESCE(\r\n    trips.concessionaire_name,\r\n    routes.concessionaire_name\r\n  ) IN (${concessionaire:sqlstring})\r\n  AND routes.route_name IN (${route:sqlstring})\r\nGROUP BY\r\n  route_name\r\nORDER BY\r\n  regexp_replace(route_name, '\\d', '', 'g'),\r\n  NULLIF(\r\n    regexp_replace(route_name, '\\D', '', 'g'),\r\n    ''\r\n  ) :: INT;",
+          "rawSql": "SELECT\r\n  stops.stop_name AS \"Haltestelle\",\r\n  AVG(\r\n    EXTRACT(\r\n      EPOCH\r\n      FROM\r\n        (\r\n          act_arrival_time - nom_arrival_time\r\n        )\r\n    )\r\n  ) / 60.0 AS \"Abw. Ankunft\",\r\n  AVG(\r\n    EXTRACT(\r\n      EPOCH\r\n      FROM\r\n        (\r\n          act_departure_time - nom_departure_time\r\n        )\r\n    )\r\n  ) / 60.0 AS \"Abw. Abfahrt\",\r\n  COUNT(DISTINCT stop_times.trip_id) AS \"Anz. Soll-Abfahrten\",\r\n  COUNT(DISTINCT stop_times.trip_id) FILTER (\r\n    WHERE\r\n      act_arrival_time IS NOT NULL\r\n      OR act_departure_time IS NOT NULL\r\n  ) AS \"Anz. Ist-Abfahrten\"\r\nFROM\r\n  fact_stop_times stop_times\r\n  INNER JOIN dim_stops stops ON stops.stop_id = stop_times.stop_id\r\n  INNER JOIN dim_trips trips ON trips.trip_id = stop_times.trip_id\r\n  INNER JOIN dim_routes routes ON routes.route_id = trips.route_id\r\nWHERE\r\n  stop_times.operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND stop_times.instance_id IN (${instance:sqlstring})\r\n  AND COALESCE(\r\n    trips.concessionaire_name,\r\n    routes.concessionaire_name\r\n  ) IN (${concessionaire:sqlstring})\r\n  AND routes.route_name IN (${route:sqlstring})\r\nGROUP BY\r\n  stops.stop_name\r\nORDER BY\r\n  stops.stop_name",
           "refId": "A",
           "sql": {
             "columns": [
@@ -172,19 +195,18 @@
           }
         }
       ],
-      "title": "Verfügbarkeit nach Linie",
-      "type": "barchart"
+      "title": "Ø Abweichung nach Haltestellen",
+      "type": "table"
     },
     {
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "timeline-postgres"
       },
-      "description": "",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "fixed"
           },
           "custom": {
             "axisBorderShow": false,
@@ -207,26 +229,21 @@
               "mode": "off"
             }
           },
-          "fieldMinMax": false,
-          "mappings": [
-            {
-              "options": {
-                "SCHEDULED": {
-                  "index": 0,
-                  "text": "Überwacht"
-                }
-              },
-              "type": "value"
-            }
-          ],
-          "max": 100,
-          "min": 0,
+          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 5
               }
             ]
           }
@@ -235,72 +252,61 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Unbekannt"
+              "options": "Abw. Ankunft"
             },
             "properties": [
               {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#dbdee0",
-                  "mode": "fixed"
-                }
+                "id": "unit",
+                "value": "suffix: min"
               },
               {
-                "id": "unit",
-                "value": "percent"
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "light-blue",
+                  "mode": "fixed"
+                }
               }
             ]
           },
           {
             "matcher": {
               "id": "byName",
-              "options": "Überwacht"
+              "options": "Abw. Abfahrt"
             },
             "properties": [
               {
-                "id": "color",
-                "value": {
-                  "fixedColor": "green",
-                  "mode": "fixed"
-                }
+                "id": "unit",
+                "value": "suffix: min"
               },
               {
-                "id": "unit",
-                "value": "percent"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Fahrtausfall"
-            },
-            "properties": [
+                "id": "decimals",
+                "value": 1
+              },
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "red",
+                  "fixedColor": "semi-dark-blue",
                   "mode": "fixed"
                 }
-              },
-              {
-                "id": "unit",
-                "value": "percent"
               }
             ]
           }
         ]
       },
       "gridPos": {
-        "h": 7,
-        "w": 24,
-        "x": 0,
-        "y": 6
+        "h": 11,
+        "w": 11,
+        "x": 13,
+        "y": 0
       },
-      "id": 1,
+      "id": 3,
       "options": {
         "barRadius": 0,
-        "barWidth": 0.85,
+        "barWidth": 0.97,
         "fullHighlight": false,
         "groupWidth": 0.7,
         "legend": {
@@ -309,18 +315,15 @@
           "placement": "bottom",
           "showLegend": true
         },
-        "orientation": "vertical",
-        "showValue": "never",
-        "stacking": "normal",
-        "text": {
-          "valueSize": 12
-        },
+        "orientation": "auto",
+        "showValue": "auto",
+        "stacking": "none",
         "tooltip": {
           "mode": "multi",
-          "sort": "asc"
+          "sort": "none"
         },
-        "xField": "Linie",
-        "xTickLabelRotation": -45,
+        "xField": "Stunde",
+        "xTickLabelRotation": 0,
         "xTickLabelSpacing": 0
       },
       "targets": [
@@ -332,60 +335,28 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\r\n  routes.route_name AS \"Linie\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship = 'SCHEDULED'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"Überwacht\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship = 'CANCELLED'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"Fahrtausfall\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship = 'UNKNOWN'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"Unbekannt\"\r\nFROM\r\n  dim_trips trips\r\n  INNER JOIN dim_routes routes ON routes.route_id = trips.route_id\r\nWHERE\r\n  operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND trips.instance_id IN (${instance:sqlstring})\r\n  AND COALESCE(\r\n    trips.concessionaire_name,\r\n    routes.concessionaire_name\r\n  ) IN (${concessionaire:sqlstring})\r\n  AND routes.route_name IN (${route:sqlstring})\r\nGROUP BY\r\n  route_name\r\nORDER BY\r\n  regexp_replace(route_name, '\\d', '', 'g'),\r\n  NULLIF(\r\n    regexp_replace(route_name, '\\D', '', 'g'),\r\n    ''\r\n  ) :: INT;",
+          "rawSql": "SELECT\r\n  EXTRACT(HOUR FROM nom_arrival_time) AS \"Stunde\",\r\n  AVG(\r\n    EXTRACT(\r\n      EPOCH\r\n      FROM\r\n        (\r\n          act_arrival_time - nom_arrival_time\r\n        )\r\n    )\r\n  ) / 60.0 AS \"Abw. Ankunft\",\r\n  AVG(\r\n    EXTRACT(\r\n      EPOCH\r\n      FROM\r\n        (\r\n          act_departure_time - nom_departure_time\r\n        )\r\n    )\r\n  ) / 60.0 AS \"Abw. Abfahrt\"\r\nFROM\r\n  fact_stop_times stop_times\r\n  INNER JOIN dim_trips trips ON trips.trip_id = stop_times.trip_id\r\n  INNER JOIN dim_routes routes ON routes.route_id = trips.route_id\r\nWHERE\r\n  stop_times.operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND stop_times.instance_id IN (${instance:sqlstring})\r\n  AND COALESCE(\r\n    trips.concessionaire_name,\r\n    routes.concessionaire_name\r\n  ) IN (${concessionaire:sqlstring})\r\n  AND routes.route_name IN (${route:sqlstring})\r\nGROUP BY\r\n  EXTRACT(HOUR FROM nom_arrival_time)\r\nORDER BY \r\n  EXTRACT(HOUR FROM nom_arrival_time)\r\n",
           "refId": "A",
           "sql": {
             "columns": [
               {
-                "parameters": [
-                  {
-                    "name": "route_name",
-                    "type": "functionParameter"
-                  }
-                ],
-                "type": "function"
-              },
-              {
-                "parameters": [
-                  {
-                    "name": "schedule_relationship",
-                    "type": "functionParameter"
-                  }
-                ],
-                "type": "function"
-              },
-              {
-                "name": "COUNT",
-                "parameters": [
-                  {
-                    "name": "*",
-                    "type": "functionParameter"
-                  }
-                ],
+                "parameters": [],
                 "type": "function"
               }
             ],
             "groupBy": [
               {
                 "property": {
-                  "name": "route_name",
-                  "type": "string"
-                },
-                "type": "groupBy"
-              },
-              {
-                "property": {
-                  "name": "schedule_relationship",
                   "type": "string"
                 },
                 "type": "groupBy"
               }
-            ]
-          },
-          "table": "dim_trips"
+            ],
+            "limit": 50
+          }
         }
       ],
-      "title": "Fahrtstatus nach Linie",
+      "title": "Ø Abweichung nach Zeitschicht",
       "type": "barchart"
     },
     {
@@ -396,9 +367,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "fixedColor": "blue",
-            "mode": "thresholds",
-            "seriesBy": "max"
+            "mode": "palette-classic"
           },
           "custom": {
             "axisBorderShow": false,
@@ -435,25 +404,12 @@
           "mappings": [],
           "max": 100,
           "min": 0,
-          "noValue": "-",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 25
-              },
-              {
-                "color": "yellow",
-                "value": 50
-              },
-              {
                 "color": "green",
-                "value": 75
+                "value": null
               }
             ]
           },
@@ -478,9 +434,10 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 13
+        "y": 11
       },
-      "id": 3,
+      "hideTimeOverride": false,
+      "id": 1,
       "interval": "1d",
       "options": {
         "legend": {
@@ -503,7 +460,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\r\n  operation_day_date AS \"Datum\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship <> 'UNKNOWN'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"Echtzeitquote\"\r\nFROM\r\n  dim_trips trips\r\n  INNER JOIN dim_routes routes ON routes.route_id = trips.route_id\r\nWHERE\r\n  trips.instance_id IN (${instance:sqlstring})\r\n  AND COALESCE(\r\n    trips.concessionaire_name,\r\n    routes.concessionaire_name\r\n  ) IN (${concessionaire:sqlstring})\r\n  AND routes.route_name IN (${route:sqlstring})\r\nGROUP BY\r\n  operation_day_date",
+          "rawSql": "SELECT\r\n  trips.operation_day_date AS \"Datum\",\r\n  AVG(\r\n    GREATEST(\r\n      0,\r\n      100.0 - ABS(\r\n        (\r\n          (\r\n            EXTRACT(\r\n              EPOCH\r\n              FROM\r\n                (\r\n                  act_end_time - act_start_time\r\n                )\r\n            ) - EXTRACT(\r\n              EPOCH\r\n              FROM\r\n                (\r\n                  nom_end_time - nom_start_time\r\n                )\r\n            )\r\n          ) / NULLIF(\r\n            EXTRACT(\r\n              EPOCH\r\n              FROM\r\n                (\r\n                  nom_end_time - nom_start_time\r\n                )\r\n            ),\r\n            0\r\n          )\r\n        ) * 100.0\r\n      )\r\n    )\r\n  ) AS \"Pünktlichkeit\"\r\nFROM\r\n  dim_trips trips\r\n  INNER JOIN dim_routes routes ON routes.route_id = trips.route_id\r\nWHERE\r\n  trips.instance_id IN (${instance:sqlstring})\r\n  AND COALESCE(\r\n    trips.concessionaire_name,\r\n    routes.concessionaire_name\r\n  ) IN (${concessionaire:sqlstring})\r\n  AND routes.route_name IN (${route:sqlstring})\r\n  AND act_start_time IS NOT NULL\r\n  AND act_end_time IS NOT NULL\r\nGROUP BY\r\n  trips.operation_day_date\r\nORDER BY\r\n  trips.operation_day_date;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -525,25 +482,24 @@
         }
       ],
       "timeFrom": "1y",
-      "title": "Echtzeitquote im Verlauf",
+      "title": "Pünktlichkeit im Verlauf",
       "type": "timeseries"
     }
   ],
-  "refresh": "15m",
+  "refresh": "",
   "schemaVersion": 39,
   "tags": [
-    "realtime",
-    "availability",
-    "timeline"
+    "timeline",
+    "performance",
+    "punctuality"
   ],
   "templating": {
     "list": [
       {
-        "allValue": "",
         "current": {
           "selected": false,
-          "text": "bodo",
-          "value": "bodo"
+          "text": "demo",
+          "value": "demo"
         },
         "datasource": {
           "type": "grafana-postgresql-datasource",
@@ -560,11 +516,10 @@
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
-        "sort": 1,
+        "sort": 0,
         "type": "query"
       },
       {
-        "allValue": "",
         "current": {
           "selected": true,
           "text": [
@@ -593,7 +548,6 @@
         "type": "query"
       },
       {
-        "allValue": "",
         "current": {
           "selected": true,
           "text": [
@@ -624,18 +578,13 @@
     ]
   },
   "time": {
-    "from": "now/d",
-    "to": "now/d"
+    "from": "now/M",
+    "to": "now/M"
   },
-  "timepicker": {
-    "hidden": false,
-    "refresh_intervals": [
-      "15m"
-    ]
-  },
+  "timepicker": {},
   "timezone": "browser",
-  "title": "Verfügbarkeit",
-  "uid": "efn51w25mcum8b",
-  "version": 16,
+  "title": "Pünktlichkeit",
+  "uid": "afny8xzai4ruoc",
+  "version": 14,
   "weekStart": ""
 }

@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 2,
+  "id": 4,
   "links": [],
   "panels": [
     {
@@ -70,9 +70,9 @@
     "list": [
       {
         "current": {
-          "selected": false,
-          "text": "All",
-          "value": "$__all"
+          "selected": true,
+          "text": "timeline-processor",
+          "value": "timeline-processor"
         },
         "datasource": {
           "type": "loki",
@@ -110,6 +110,6 @@
   "timezone": "",
   "title": "Container Logs",
   "uid": "timeline-container-logs",
-  "version": 4,
+  "version": 1,
   "weekStart": ""
 }

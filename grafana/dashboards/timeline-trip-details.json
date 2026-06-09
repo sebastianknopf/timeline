@@ -928,8 +928,8 @@
       {
         "current": {
           "selected": false,
-          "text": "demo",
-          "value": "demo"
+          "text": "bodo",
+          "value": "bodo"
         },
         "hide": 2,
         "name": "instance_id",
@@ -940,35 +940,35 @@
             "value": ""
           }
         ],
-        "query": "demo",
+        "query": "bodo",
         "skipUrlSync": false,
         "type": "textbox"
       },
       {
         "current": {
           "selected": false,
-          "text": "01.06.2026",
-          "value": "01.06.2026"
+          "text": "09.06.2026",
+          "value": "09.06.2026"
         },
         "hide": 2,
         "label": "Betriebstag",
         "name": "operation_day_date",
         "options": [],
-        "query": "01.06.2026",
+        "query": "09.06.2026",
         "skipUrlSync": false,
         "type": "textbox"
       },
       {
         "current": {
           "selected": false,
-          "text": "de:vpe:03006_:4627",
-          "value": "de:vpe:03006_:4627"
+          "text": "ddb-90-T03L-1-1-51-H-16-Special#1244-29-61",
+          "value": "ddb-90-T03L-1-1-51-H-16-Special#1244-29-61"
         },
         "hide": 2,
         "label": "Fahrt-ID",
         "name": "trip_id",
         "options": [],
-        "query": "de:vpe:03006_:4627",
+        "query": "ddb-90-T03L-1-1-51-H-16-Special#1244-29-61",
         "skipUrlSync": false,
         "type": "textbox"
       }
@@ -986,6 +986,6 @@
   "timezone": "browser",
   "title": "Fahrtdetails",
   "uid": "afnn9dbm1lzi8c",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }

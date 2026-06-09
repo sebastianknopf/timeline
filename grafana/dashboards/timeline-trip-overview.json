@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 18,
+  "id": 3,
   "links": [
     {
       "asDropdown": false,
@@ -31,21 +31,6 @@
       ],
       "targetBlank": false,
       "title": "Übersicht",
-      "tooltip": "",
-      "type": "dashboards",
-      "url": ""
-    },
-    {
-      "asDropdown": true,
-      "icon": "external link",
-      "includeVars": true,
-      "keepTime": true,
-      "tags": [
-        "timeline",
-        "realtime"
-      ],
-      "targetBlank": false,
-      "title": "Echtzeit",
       "tooltip": "",
       "type": "dashboards",
       "url": ""
@@ -309,7 +294,7 @@
                   {
                     "targetBlank": true,
                     "title": "Fahrtdetails",
-                    "url": "/d/afnn9dbm1lzi8c/fahrtdetails?var-trip_id=${__data.fields[\"Fahrt-ID\"]}\n&var-operation_day_date=${__data.fields[\"Betriebstag\"]}\n&var-instance_id=${instance}"
+                    "url": "/d/afnn9dbm1lzi8c/fahrtdetails?var-trip_id=${__data.fields[\"Fahrt-ID\"]:percentencode}\n&var-operation_day_date=${__data.fields[\"Betriebstag\"]}\n&var-instance_id=${instance}"
                   }
                 ]
               }
@@ -568,7 +553,7 @@
       },
       {
         "current": {
-          "selected": false,
+          "selected": true,
           "text": [
             "All"
           ],
@@ -580,14 +565,14 @@
           "type": "grafana-postgresql-datasource",
           "uid": "timeline-postgres"
         },
-        "definition": "SELECT DISTINCT concessionaire_name FROM dim_trips WHERE concessionaire_name IS NOT NULL\nUNION\nSELECT DISTINCT concessionaire_name FROM dim_routes WHERE concessionaire_name IS NOT NULL",
+        "definition": "SELECT DISTINCT concessionaire_name FROM dim_trips WHERE concessionaire_name IS NOT NULL AND instance_id = ${instance:sqlstring}\nUNION\nSELECT DISTINCT concessionaire_name FROM dim_routes WHERE concessionaire_name IS NOT NULL AND instance_id = ${instance:sqlstring}",
         "hide": 0,
         "includeAll": true,
         "label": "Konzessionär",
         "multi": true,
         "name": "concessionaire",
         "options": [],
-        "query": "SELECT DISTINCT concessionaire_name FROM dim_trips WHERE concessionaire_name IS NOT NULL\nUNION\nSELECT DISTINCT concessionaire_name FROM dim_routes WHERE concessionaire_name IS NOT NULL",
+        "query": "SELECT DISTINCT concessionaire_name FROM dim_trips WHERE concessionaire_name IS NOT NULL AND instance_id = ${instance:sqlstring}\nUNION\nSELECT DISTINCT concessionaire_name FROM dim_routes WHERE concessionaire_name IS NOT NULL AND instance_id = ${instance:sqlstring}",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
@@ -596,32 +581,26 @@
       },
       {
         "current": {
-          "selected": false,
+          "selected": true,
           "text": [
-            "734",
-            "735",
-            "743",
-            "744"
+            "All"
           ],
           "value": [
-            "734",
-            "735",
-            "743",
-            "744"
+            "$__all"
           ]
         },
         "datasource": {
           "type": "grafana-postgresql-datasource",
           "uid": "timeline-postgres"
         },
-        "definition": "SELECT DISTINCT route_name FROM dim_routes",
+        "definition": "SELECT DISTINCT route_name FROM dim_routes WHERE instance_id = ${instance:sqlstring} AND concessionaire_name IN (${concessionaire:sqlstring})",
         "hide": 0,
         "includeAll": true,
         "label": "Linie",
         "multi": true,
         "name": "route",
         "options": [],
-        "query": "SELECT DISTINCT route_name FROM dim_routes",
+        "query": "SELECT DISTINCT route_name FROM dim_routes WHERE instance_id = ${instance:sqlstring} AND concessionaire_name IN (${concessionaire:sqlstring})",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
@@ -744,8 +723,8 @@
     ]
   },
   "time": {
-    "from": "now-6h",
-    "to": "now"
+    "from": "now/M",
+    "to": "now/M"
   },
   "timepicker": {
     "refresh_intervals": [
@@ -755,6 +734,6 @@
   "timezone": "browser",
   "title": "Fahrtübersicht",
   "uid": "dfnn34s7l6ubka",
-  "version": 2,
+  "version": 11,
   "weekStart": ""
 }

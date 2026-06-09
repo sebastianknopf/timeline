@@ -188,7 +188,7 @@
               "showLegend": false,
               "style": {
                 "color": {
-                  "fixed": "#afafaf"
+                  "fixed": "super-light-blue"
                 },
                 "opacity": 0.4,
                 "rotation": {
@@ -255,7 +255,7 @@
           "format": "table",
           "hide": false,
           "rawQuery": true,
-          "rawSql": "SELECT\r\n  stop_name AS Name,\r\n  stop_lat AS Breitengrad,\r\n  stop_lon AS Längengrad\r\nFROM\r\n  dim_stops\r\nWHERE\r\n  instance_id IN (${instance:sqlstring})",
+          "rawSql": "SELECT\r\n  stop_name AS Name,\r\n  stop_lat AS Breitengrad,\r\n  stop_lon AS Längengrad\r\nFROM\r\n  dim_stops\r\nWHERE\r\n  instance_id IN (${instance:sqlstring})\r\n  AND stop_lat <> 0.0\r\n  AND stop_lon <> 0.0",
           "refId": "StopsLayerQuery",
           "sql": {
             "columns": [
@@ -284,7 +284,7 @@
           "format": "table",
           "hide": false,
           "rawQuery": true,
-          "rawSql": "SELECT\r\n  stops.stop_lat,\r\n  stops.stop_lon,\r\n  AVG(\r\n    GREATEST(\r\n      EXTRACT(\r\n        EPOCH\r\n        FROM\r\n          (act_arrival_time - nom_arrival_time)\r\n      ) / 60,\r\n      EXTRACT(\r\n        EPOCH\r\n        FROM\r\n          (act_departure_time - nom_departure_time)\r\n      ) / 60\r\n    )\r\n  ) AS Verspätung\r\nFROM\r\n  fact_stop_times stop_times\r\n  INNER JOIN dim_stops stops ON stop_times.stop_id = stops.stop_id\r\n  INNER JOIN dim_trips trips ON stop_times.trip_id = trips.trip_id\r\nWHERE\r\n  stop_times.operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND stop_times.instance_id IN (${instance:sqlstring})\r\n  AND stop_times.act_arrival_time IS NOT NULL\r\nGROUP BY\r\n  stops.stop_lat,\r\n  stops.stop_lon,\r\n  stop_times.stop_id",
+          "rawSql": "SELECT\r\n  stops.stop_lat,\r\n  stops.stop_lon,\r\n  AVG(\r\n    GREATEST(\r\n      EXTRACT(\r\n        EPOCH\r\n        FROM\r\n          (act_arrival_time - nom_arrival_time)\r\n      ) / 60,\r\n      EXTRACT(\r\n        EPOCH\r\n        FROM\r\n          (act_departure_time - nom_departure_time)\r\n      ) / 60\r\n    )\r\n  ) AS Verspätung\r\nFROM\r\n  fact_stop_times stop_times\r\n  INNER JOIN dim_stops stops ON stop_times.stop_id = stops.stop_id\r\n  INNER JOIN dim_trips trips ON stop_times.trip_id = trips.trip_id\r\nWHERE\r\n  stop_times.operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND stop_times.instance_id IN (${instance:sqlstring})\r\n  AND stop_times.act_arrival_time IS NOT NULL\r\n  AND stops.stop_lat <> 0.0\r\n  AND stops.stop_lon <> 0.0\r\nGROUP BY\r\n  stops.stop_lat,\r\n  stops.stop_lon,\r\n  stop_times.stop_id",
           "refId": "MeanDelayQuery",
           "sql": {
             "columns": [
@@ -319,6 +319,7 @@
             "fixedColor": "blue",
             "mode": "fixed"
           },
+          "decimals": 0,
           "mappings": [],
           "noValue": "-",
           "thresholds": {
@@ -368,7 +369,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\r\n  SUM(act_total_distance) AS GefahreneKilometer\r\nFROM\r\n  dim_trips\r\nWHERE\r\n  operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND schedule_relationship <> 'UNKNOWN'\r\n  AND schedule_relationship <> 'CANCELLED'",
+          "rawSql": "SELECT\r\n  SUM(act_total_distance) AS GefahreneKilometer\r\nFROM\r\n  dim_trips\r\nWHERE\r\n  operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND instance_id = ${instance:sqlstring}\r\n  AND schedule_relationship <> 'UNKNOWN'\r\n  AND schedule_relationship <> 'CANCELLED'",
           "refId": "A",
           "sql": {
             "columns": [
@@ -404,7 +405,7 @@
             "fixedColor": "blue",
             "mode": "fixed"
           },
-          "decimals": 2,
+          "decimals": 0,
           "fieldMinMax": false,
           "mappings": [],
           "noValue": "-",
@@ -455,7 +456,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\r\n  SUM(\r\n    EXTRACT(\r\n      EPOCH\r\n      FROM\r\n        (act_end_time - act_start_time)\r\n    ) / 3600\r\n  ) AS GefahreneFahrplanzeit\r\nFROM\r\n  dim_trips\r\nWHERE\r\n  operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND schedule_relationship <> 'UNKNOWN'\r\n  AND schedule_relationship <> 'CANCELLED'",
+          "rawSql": "SELECT\r\n  SUM(\r\n    EXTRACT(\r\n      EPOCH\r\n      FROM\r\n        (act_end_time - act_start_time)\r\n    ) / 3600\r\n  ) AS GefahreneFahrplanzeit\r\nFROM\r\n  dim_trips\r\nWHERE\r\n  operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND instance_id = ${instance:sqlstring}\r\n  AND schedule_relationship <> 'UNKNOWN'\r\n  AND schedule_relationship <> 'CANCELLED'",
           "refId": "A",
           "sql": {
             "columns": [
@@ -637,7 +638,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship <> 'UNKNOWN'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"Echtzeitquote\"\r\nFROM\r\n  dim_trips\r\nWHERE\r\n  operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE",
+          "rawSql": "SELECT\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          schedule_relationship <> 'UNKNOWN'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"Echtzeitquote\"\r\nFROM\r\n  dim_trips\r\nWHERE\r\n  operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND instance_id = ${instance:sqlstring}",
           "refId": "A",
           "sql": {
             "columns": [
@@ -673,8 +674,8 @@
       {
         "current": {
           "selected": false,
-          "text": "demo",
-          "value": "demo"
+          "text": "bodo",
+          "value": "bodo"
         },
         "datasource": {
           "type": "grafana-postgresql-datasource",
@@ -697,8 +698,8 @@
     ]
   },
   "time": {
-    "from": "now-6h",
-    "to": "now"
+    "from": "now/d",
+    "to": "now/d"
   },
   "timepicker": {
     "refresh_intervals": [
@@ -708,6 +709,6 @@
   "timezone": "browser",
   "title": "Übersicht",
   "uid": "dfnjo7bwplq0wf",
-  "version": 2,
+  "version": 12,
   "weekStart": ""
 }
