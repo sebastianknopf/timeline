@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 2,
+  "id": 7,
   "links": [],
   "panels": [
     {
@@ -215,6 +215,7 @@
           "color": {
             "mode": "thresholds"
           },
+          "decimals": 0,
           "mappings": [],
           "noValue": "-",
           "thresholds": {
@@ -947,28 +948,28 @@
       {
         "current": {
           "selected": false,
-          "text": "09.06.2026",
-          "value": "09.06.2026"
+          "text": "16.06.2026",
+          "value": "16.06.2026"
         },
         "hide": 2,
         "label": "Betriebstag",
         "name": "operation_day_date",
         "options": [],
-        "query": "09.06.2026",
+        "query": "16.06.2026",
         "skipUrlSync": false,
         "type": "textbox"
       },
       {
         "current": {
           "selected": false,
-          "text": "ddb-90-T03L-1-1-51-H-16-Special#1244-29-61",
-          "value": "ddb-90-T03L-1-1-51-H-16-Special#1244-29-61"
+          "text": "rab-14-380-1-5-36-H-10-Special#82-39-38",
+          "value": "rab-14-380-1-5-36-H-10-Special#82-39-38"
         },
         "hide": 2,
         "label": "Fahrt-ID",
         "name": "trip_id",
         "options": [],
-        "query": "ddb-90-T03L-1-1-51-H-16-Special#1244-29-61",
+        "query": "rab-14-380-1-5-36-H-10-Special#82-39-38",
         "skipUrlSync": false,
         "type": "textbox"
       }
@@ -986,6 +987,6 @@
   "timezone": "browser",
   "title": "Fahrtdetails",
   "uid": "afnn9dbm1lzi8c",
-  "version": 3,
+  "version": 2,
   "weekStart": ""
 }
