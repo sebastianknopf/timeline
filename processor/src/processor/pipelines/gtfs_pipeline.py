@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import fnmatch
 import math
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
@@ -17,7 +18,7 @@ import structlog
 from ..loading.loading_service import LoadingService
 from ..loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
 from ..mapping.intf_mapping_service import MappingServiceInterface
-from ..runtime_config import AuthenticationConfig, InstanceConfig, PipelineConfig
+from ..runtime_config import AuthenticationConfig, FilterEntryConfig, InstanceConfig, PipelineConfig
 
 LOGGER = structlog.get_logger(__name__)
 
@@ -35,6 +36,7 @@ class _AgencyInfo:
 @dataclass(frozen=True, slots=True)
 class _RouteInfo:
     route_id: str
+    agency_id: str
     route_name: str
     concessionaire_id: str
     concessionaire_name: str
@@ -96,15 +98,30 @@ class GtfsNominalPipeline:
 
         try:
             agencies = self._read_agencies(feed=feed)
-            source_timezone_name = _resolve_agency_timezone_name(
+            filter_selection = pipeline.filter
+            selected_agencies = self._select_agencies_for_filter(
                 agencies=agencies,
+                operator_rules=filter_selection.operators if filter_selection is not None else (),
+            )
+            source_timezone_name = _resolve_agency_timezone_name(
+                agencies=selected_agencies,
                 fallback_timezone_name=self._processor_timezone_name,
             )
             source_timezone = _safe_zoneinfo(source_timezone_name)
             operation_day = datetime.now(self._processor_timezone).date()
             valid_service_ids = self._resolve_valid_service_ids(feed=feed, operation_day=operation_day)
-            routes = self._read_routes(feed=feed, agencies=agencies, pipeline=pipeline)
-            trips = self._read_trips(feed=feed, valid_service_ids=valid_service_ids)
+            routes = self._read_routes(
+                feed=feed,
+                agencies=selected_agencies,
+                pipeline=pipeline,
+                route_rules=filter_selection.routes if filter_selection is not None else (),
+                operator_rules=filter_selection.operators if filter_selection is not None else (),
+            )
+            trips = self._read_trips(
+                feed=feed,
+                valid_service_ids=valid_service_ids,
+                allowed_route_ids=set(routes.keys()),
+            )
             shape_index = self._read_shape_index(feed=feed)
             stop_times_by_trip = self._read_stop_times(feed=feed, valid_trip_ids=set(trips.keys()))
             stop_records = self._read_stops(feed=feed, referenced_stop_ids=_referenced_stop_ids(stop_times_by_trip))
@@ -280,6 +297,8 @@ class GtfsNominalPipeline:
         feed: "_GtfsArchive",
         agencies: dict[str, _AgencyInfo],
         pipeline: PipelineConfig,
+        route_rules: tuple[FilterEntryConfig, ...],
+        operator_rules: tuple[FilterEntryConfig, ...],
     ) -> dict[str, _RouteInfo]:
         if not feed.has_file("routes.txt"):
             raise GtfsPipelineError("GTFS feed is missing required file routes.txt.")
@@ -296,11 +315,13 @@ class GtfsNominalPipeline:
         )
 
         default_agency = next(iter(agencies.values()), None)
-
         routes: dict[str, _RouteInfo] = {}
         for row in feed.iter_csv_rows("routes.txt"):
             route_id = (row.get("route_id") or "").strip()
             if not route_id:
+                continue
+
+            if route_rules and not _filter_value_matches(route_id, route_rules):
                 continue
 
             route_name = (
@@ -310,12 +331,16 @@ class GtfsNominalPipeline:
             )
 
             agency_id = (row.get("agency_id") or "").strip()
+            if operator_rules and agency_id and not _filter_value_matches(agency_id, operator_rules):
+                continue
+
             agency = agencies.get(agency_id) if agency_id else default_agency
             concessionaire_id = agency.agency_id if agency else fallback_agency_id
             concessionaire_name = agency.agency_name if agency else fallback_agency_name
 
             routes[route_id] = _RouteInfo(
                 route_id=route_id,
+                agency_id=agency.agency_id if agency else agency_id,
                 route_name=route_name,
                 concessionaire_id=concessionaire_id,
                 concessionaire_name=concessionaire_name,
@@ -327,6 +352,7 @@ class GtfsNominalPipeline:
         self,
         feed: "_GtfsArchive",
         valid_service_ids: set[str],
+        allowed_route_ids: set[str],
     ) -> dict[str, _TripMeta]:
         if not feed.has_file("trips.txt"):
             raise GtfsPipelineError("GTFS feed is missing required file trips.txt.")
@@ -339,6 +365,8 @@ class GtfsNominalPipeline:
 
             if not trip_id or not route_id or not service_id:
                 continue
+            if allowed_route_ids and route_id not in allowed_route_ids:
+                continue
             if service_id not in valid_service_ids:
                 continue
 
@@ -349,6 +377,21 @@ class GtfsNominalPipeline:
             )
 
         return trips
+
+    def _select_agencies_for_filter(
+        self,
+        agencies: dict[str, _AgencyInfo],
+        operator_rules: tuple[FilterEntryConfig, ...],
+    ) -> dict[str, _AgencyInfo]:
+        if not operator_rules:
+            return agencies
+
+        selected: dict[str, _AgencyInfo] = {}
+        for agency_id, agency in agencies.items():
+            if _filter_value_matches(agency_id, operator_rules):
+                selected[agency_id] = agency
+
+        return selected
 
     def _read_shape_index(self, feed: "_GtfsArchive") -> dict[str, float]:
         """Build a shape_id → total-distance-in-km index by streaming shapes.txt.
@@ -678,6 +721,19 @@ def _build_auth_headers(authentication: AuthenticationConfig | None) -> dict[str
         return {"Authorization": f"Basic {encoded}"}
 
     return {}
+
+
+def _filter_value_matches(value: str, rules: tuple[FilterEntryConfig, ...]) -> bool:
+    include_rules = [rule for rule in rules if rule.type == "include"]
+    exclude_rules = [rule for rule in rules if rule.type == "exclude"]
+
+    if include_rules and not any(fnmatch.fnmatchcase(value, rule.match) for rule in include_rules):
+        return False
+
+    if any(fnmatch.fnmatchcase(value, rule.match) for rule in exclude_rules):
+        return False
+
+    return True
 
 
 def _safe_zoneinfo(timezone_name: str) -> ZoneInfo:

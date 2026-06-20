@@ -36,9 +36,13 @@ instance:
         type: nominal
         cron: "0 2 * * *"
         endpoint: "https://example.test/nominal"
-        mapping:
-          stops: "stops.csv"
-          routes: "routes.csv"
+        filter:
+          routes:
+            - match: "*-route1"
+              type: include
+              mapping:
+                stops: "stops.csv"
+                routes: "routes.csv"
       - id: realtime-main
         name: gtfsrt-tripupdates
         type: realtime
@@ -46,6 +50,13 @@ instance:
         endpoint: "https://example.test/realtime"
         authentication:
           token: "abc"
+        filter:
+          operators:
+            - match: "*-operator1"
+              type: exclude
+              mapping:
+                stops: "stops.csv"
+                routes: "routes.csv"
 """.strip(),
                 encoding="utf-8",
             )
@@ -57,6 +68,18 @@ instance:
             self.assertEqual("demo", parsed.instances[0].id)
             self.assertEqual(2, len(parsed.instances[0].pipelines))
             self.assertEqual("schedule", parsed.instances[0].pipelines[0].policy)
+            nominal_filter = parsed.instances[0].pipelines[0].filter
+            self.assertIsNotNone(nominal_filter)
+            self.assertEqual(1, len(nominal_filter.routes))
+            self.assertEqual("*-route1", nominal_filter.routes[0].match)
+            self.assertIsNotNone(nominal_filter.routes[0].mapping)
+            self.assertEqual(stops_file.resolve(), nominal_filter.routes[0].mapping.stops)
+            self.assertEqual(routes_file.resolve(), nominal_filter.routes[0].mapping.routes)
+
+            realtime_filter = parsed.instances[0].pipelines[1].filter
+            self.assertIsNotNone(realtime_filter)
+            self.assertEqual(1, len(realtime_filter.operators))
+            self.assertEqual("exclude", realtime_filter.operators[0].type)
 
     def test_load_and_validate_accepts_second_based_cron_expression(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir_str:
@@ -72,6 +95,10 @@ instance:
         type: realtime
         cron: "*/10 * * * * *"
         endpoint: "https://example.test/realtime"
+        filter:
+          operators:
+            - match: "*-operator1"
+              type: include
 """.strip(),
                 encoding="utf-8",
             )
@@ -80,6 +107,10 @@ instance:
             parsed = verifier.load_and_validate(config_file)
 
             self.assertEqual("*/10 * * * * *", parsed.instances[0].pipelines[0].cron)
+            self.assertEqual(
+              "include",
+              parsed.instances[0].pipelines[0].filter.operators[0].type,
+            )
 
     def test_load_and_validate_accepts_pipeline_startup_and_schedule_policy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir_str:
@@ -96,6 +127,10 @@ instance:
         cron: "0 2 * * *"
         endpoint: "https://example.test/nominal"
         policy: "startupAndSchedule"
+        filter:
+          routes:
+            - match: "*-route1"
+              type: exclude
 """.strip(),
                 encoding="utf-8",
             )
@@ -123,6 +158,10 @@ instance:
         cron: "0 2 * * *"
         endpoint: "https://example.test/nominal"
         policy: "startup"
+        filter:
+          routes:
+            - match: "*-route1"
+              type: include
 """.strip(),
                 encoding="utf-8",
             )
@@ -150,6 +189,10 @@ instance:
           token: "abc"
           username: "user"
           password: "pw"
+        filter:
+          operators:
+            - match: "*-operator1"
+              type: include
 """.strip(),
                 encoding="utf-8",
             )
@@ -179,8 +222,12 @@ instance:
         type: nominal
         cron: "0 2 * * *"
         endpoint: "https://example.test/nominal"
-        mapping:
-          stops: "{outside_file.as_posix()}"
+        filter:
+          routes:
+            - match: "*-route1"
+              type: include
+              mapping:
+                stops: "{outside_file.as_posix()}"
 """.strip(),
                 encoding="utf-8",
             )
@@ -189,6 +236,31 @@ instance:
 
             with self.assertRaises(ConfigurationError):
                 verifier.load_and_validate(config_file)
+
+    def test_load_and_validate_accepts_pipeline_without_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            config_file = tmp_dir / "config.yaml"
+            config_file.write_text(
+                """
+instance:
+  - id: demo
+    pipeline:
+      - id: nominal-main
+        name: gtfs
+        type: nominal
+        cron: "0 2 * * *"
+        endpoint: "https://example.test/nominal"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            verifier = ConfigurationVerifier(mapping_root=tmp_dir)
+            parsed = verifier.load_and_validate(config_file)
+
+            self.assertEqual(1, len(parsed.instances))
+            self.assertEqual(1, len(parsed.instances[0].pipelines))
+            self.assertIsNone(parsed.instances[0].pipelines[0].filter)
 
 
 if __name__ == "__main__":

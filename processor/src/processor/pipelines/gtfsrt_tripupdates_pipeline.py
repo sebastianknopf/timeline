@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+import fnmatch
 from typing import Iterable
 from urllib.request import Request, urlopen
 import base64
@@ -13,7 +14,7 @@ import structlog
 from ..loading.loading_service import LoadingService
 from ..loading.models import StopTimeRecord, TripRecord
 from ..mapping.intf_mapping_service import MappingServiceInterface
-from ..runtime_config import AuthenticationConfig, InstanceConfig, PipelineConfig
+from ..runtime_config import AuthenticationConfig, FilterEntryConfig, InstanceConfig, PipelineConfig
 
 LOGGER = structlog.get_logger(__name__)
 
@@ -64,6 +65,7 @@ class GtfsRtTripUpdatesPipeline:
         skipped_entities = 0
         loaded_trip_count = 0
         loaded_stop_time_count = 0
+        route_filter = pipeline.filter.routes if pipeline.filter is not None else ()
 
         for entity in feed_message.entity:
             entity_count += 1
@@ -86,6 +88,18 @@ class GtfsRtTripUpdatesPipeline:
             )
 
             route_id = (trip_descriptor.route_id or "").strip() or "UNKNOWN-ROUTE"
+            if route_filter:
+                if not trip_descriptor.route_id or not _route_matches_filter(route_id, route_filter):
+                    skipped_entities += 1
+                    LOGGER.debug(
+                        "realtime_trip_discarded_by_route_filter",
+                        instance_id=instance.id,
+                        pipeline_id=pipeline.id,
+                        trip_id=trip_id,
+                        route_id=route_id,
+                    )
+                    continue
+
             scheduled_start_time_str: str | None = (trip_descriptor.start_time or "").strip() or None
             trip_schedule_relationship = _enum_name(
                 enum_descriptor=gtfs_realtime_pb2.TripDescriptor.ScheduleRelationship,
@@ -316,6 +330,19 @@ def _build_auth_headers(authentication: AuthenticationConfig | None) -> dict[str
         return {"Authorization": f"Basic {encoded}"}
 
     return {}
+
+
+def _route_matches_filter(route_id: str, route_filter: tuple[FilterEntryConfig, ...]) -> bool:
+    include_rules = [rule for rule in route_filter if rule.type == "include"]
+    exclude_rules = [rule for rule in route_filter if rule.type == "exclude"]
+
+    if include_rules and not any(fnmatch.fnmatchcase(route_id, rule.match) for rule in include_rules):
+        return False
+
+    if any(fnmatch.fnmatchcase(route_id, rule.match) for rule in exclude_rules):
+        return False
+
+    return True
 
 
 def _safe_zoneinfo(timezone_name: str) -> ZoneInfo:

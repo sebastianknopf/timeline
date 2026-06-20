@@ -12,6 +12,8 @@ from .runtime_config import (
     ExportConfig,
     ExportPeriodConfig,
     ExportProcessingConfig,
+    FilterConfig,
+    FilterEntryConfig,
     InstanceConfig,
     MappingConfig,
     PipelineConfig,
@@ -152,7 +154,7 @@ class ConfigurationVerifier:
             pipeline_id,
         )
 
-        mapping = self._parse_mapping(raw_pipeline.get("mapping"), pipeline_id)
+        filter_config = self._parse_filter(raw_pipeline.get("filter"), pipeline_id)
 
         return PipelineConfig(
             id=pipeline_id,
@@ -163,7 +165,8 @@ class ConfigurationVerifier:
             policy=policy,
             authentication=authentication,
             parameters=parameters,
-            mapping=mapping,
+            filter=filter_config,
+            mapping=None,
         )
 
     def _parse_export(self, instance_id: str, raw_export: Any) -> ExportConfig:
@@ -308,13 +311,111 @@ class ConfigurationVerifier:
             password=password.strip() if has_basic else None,
         )
 
-    def _parse_mapping(self, raw_mapping: Any, pipeline_id: str) -> MappingConfig | None:
-        if raw_mapping is None:
+    def _parse_filter(self, raw_filter: Any, pipeline_id: str) -> FilterConfig | None:
+        if raw_filter is None:
             return None
 
+        if not isinstance(raw_filter, dict):
+            raise ConfigurationError(
+                f"Pipeline '{pipeline_id}' filter must be a YAML object."
+            )
+
+        allowed_keys = {"routes", "operators"}
+        unexpected = set(raw_filter.keys()) - allowed_keys
+        if unexpected:
+            unexpected_keys = ", ".join(sorted(unexpected))
+            raise ConfigurationError(
+                f"Pipeline '{pipeline_id}' filter contains unsupported keys: {unexpected_keys}."
+            )
+
+        has_routes = "routes" in raw_filter
+        has_operators = "operators" in raw_filter
+        if has_routes == has_operators:
+            raise ConfigurationError(
+                f"Pipeline '{pipeline_id}' filter must define exactly one of 'routes' or 'operators'."
+            )
+
+        filter_name = "routes" if has_routes else "operators"
+        raw_filters = raw_filter.get(filter_name)
+
+        if not isinstance(raw_filters, list) or not raw_filters:
+            raise ConfigurationError(
+                f"Pipeline '{pipeline_id}' filter.{filter_name} must be a non-empty list."
+            )
+
+        entries: list[FilterEntryConfig] = []
+        for index, raw_entry in enumerate(raw_filters, start=1):
+            entries.append(
+                self._parse_filter_entry(raw_entry, pipeline_id, filter_name, index)
+            )
+
+        if filter_name == "routes":
+            return FilterConfig(routes=tuple(entries))
+
+        return FilterConfig(operators=tuple(entries))
+
+    def _parse_filter_entry(
+        self,
+        raw_entry: Any,
+        pipeline_id: str,
+        filter_name: str,
+        index: int,
+    ) -> FilterEntryConfig:
+        if not isinstance(raw_entry, dict):
+            raise ConfigurationError(
+                f"Pipeline '{pipeline_id}' filter.{filter_name}[{index}] must be a YAML object."
+            )
+
+        allowed_keys = {"match", "type", "mapping"}
+        unexpected = set(raw_entry.keys()) - allowed_keys
+        if unexpected:
+            unexpected_keys = ", ".join(sorted(unexpected))
+            raise ConfigurationError(
+                f"Pipeline '{pipeline_id}' filter.{filter_name}[{index}] contains unsupported keys: {unexpected_keys}."
+            )
+
+        match = self._require_non_empty_str(
+            raw_entry.get("match"),
+            f"pipeline.filter.{filter_name}[{index}].match ({pipeline_id})",
+        )
+
+        filter_type = self._require_non_empty_str(
+            raw_entry.get("type"),
+            f"pipeline.filter.{filter_name}[{index}].type ({pipeline_id})",
+        )
+        if filter_type not in {"include", "exclude"}:
+            raise ConfigurationError(
+                f"Pipeline '{pipeline_id}' filter.{filter_name}[{index}] type must be 'include' or 'exclude'."
+            )
+
+        raw_mapping = raw_entry.get("mapping")
+        mapping_config: MappingConfig | None = None
+        if raw_mapping is not None:
+            mapping_config = self._parse_filter_mapping(
+                raw_mapping,
+                pipeline_id,
+                filter_name,
+                index,
+                match,
+            )
+
+        return FilterEntryConfig(
+            match=match,
+            type=filter_type,
+            mapping=mapping_config,
+        )
+
+    def _parse_filter_mapping(
+        self,
+        raw_mapping: Any,
+        pipeline_id: str,
+        filter_name: str,
+        index: int,
+        match: str,
+    ) -> MappingConfig | None:
         if not isinstance(raw_mapping, dict):
             raise ConfigurationError(
-                f"Pipeline '{pipeline_id}' mapping must be a YAML object."
+                f"Pipeline '{pipeline_id}' filter.{filter_name}[{index}] mapping must be a YAML object."
             )
 
         allowed_keys = {"stops", "routes"}
@@ -322,14 +423,22 @@ class ConfigurationVerifier:
         if unexpected:
             unexpected_keys = ", ".join(sorted(unexpected))
             raise ConfigurationError(
-                f"Pipeline '{pipeline_id}' mapping contains unsupported keys: {unexpected_keys}."
+                f"Pipeline '{pipeline_id}' filter.{filter_name}[{index}] mapping contains unsupported keys: {unexpected_keys}."
             )
 
         stops_path = self._validate_mapping_csv(
-            self._resolve_mapping_path(raw_mapping.get("stops"), pipeline_id, "stops")
+            self._resolve_mapping_path(
+                raw_mapping.get("stops"),
+                pipeline_id,
+                f"filter.{filter_name}[{index}].mapping.stops ({match})",
+            )
         )
         routes_path = self._validate_mapping_csv(
-            self._resolve_mapping_path(raw_mapping.get("routes"), pipeline_id, "routes")
+            self._resolve_mapping_path(
+                raw_mapping.get("routes"),
+                pipeline_id,
+                f"filter.{filter_name}[{index}].mapping.routes ({match})",
+            )
         )
 
         if stops_path is None and routes_path is None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from pathlib import Path
 import tempfile
 import unittest
@@ -18,7 +18,7 @@ from processor.loading.loading_service import LoadingService
 from processor.loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
 from processor.mapping.mapping_service import MappingService
 from processor.pipelines.gtfs_pipeline import GtfsNominalPipeline
-from processor.runtime_config import InstanceConfig, MappingConfig, PipelineConfig
+from processor.runtime_config import FilterConfig, FilterEntryConfig, InstanceConfig, MappingConfig, PipelineConfig
 
 
 class RecordingRepository:
@@ -83,6 +83,48 @@ class RecordingRepository:
         trip_id: str,
     ) -> list[StopTimeRecord]:
         return []
+
+
+class IdentityMappingService:
+    def register_pipeline_mapping(self, instance_id: str, pipeline: object) -> None:
+        return None
+
+    async def map_stop_records(
+        self,
+        instance_id: str,
+        pipeline_id: str,
+        stops: list[StopRecord],
+    ) -> list[StopRecord]:
+        return stops
+
+    async def map_records_for_loading(
+        self,
+        instance_id: str,
+        pipeline_id: str,
+        trip: TripRecord,
+        stop_times: list[StopTimeRecord],
+    ) -> tuple[TripRecord, list[StopTimeRecord]]:
+        return trip, stop_times
+
+
+def make_pipeline(
+    *,
+    pipeline_id: str,
+    endpoint: str,
+    filter_config: FilterConfig | None = None,
+    authentication: object | None = None,
+    parameters: dict[str, object] | None = None,
+) -> PipelineConfig:
+    return PipelineConfig(
+        id=pipeline_id,
+        name="gtfs",
+        type="nominal",
+        cron="0 2 * * *",
+        endpoint=endpoint,
+        authentication=authentication,
+        parameters=parameters or {},
+        filter=filter_config,
+    )
 
 
 class GtfsNominalPipelineTests(unittest.IsolatedAsyncioTestCase):
@@ -161,6 +203,132 @@ class GtfsNominalPipelineTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual("STOP-A", repository.trips[0].nom_start_stop_id)
             self.assertEqual("STOP-B", repository.trips[0].nom_end_stop_id)
 
+    async def test_pipeline_applies_route_filter_wildcard_include(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            operation_day = datetime.now(UTC).date().strftime("%Y%m%d")
+
+            gtfs_zip = tmp_dir / "gtfs-route-filter.zip"
+            with zipfile.ZipFile(gtfs_zip, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr(
+                    "agency.txt",
+                    "agency_id,agency_name,agency_timezone\nA1,Agency One,UTC\n",
+                )
+                archive.writestr(
+                    "calendar.txt",
+                    "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n"
+                    f"SVC,1,1,1,1,1,1,1,{operation_day},{operation_day}\n",
+                )
+                archive.writestr(
+                    "routes.txt",
+                    "route_id,agency_id,route_short_name\nR1A,A1,Route 1\nR2B,A1,Route 2\n",
+                )
+                archive.writestr(
+                    "trips.txt",
+                    "route_id,service_id,trip_id\nR1A,SVC,T1\nR2B,SVC,T2\n",
+                )
+                archive.writestr(
+                    "stops.txt",
+                    "stop_id,stop_name,stop_lat,stop_lon\n"
+                    "S1,Stop One,48.1,8.1\nS2,Stop Two,48.2,8.2\n",
+                )
+                archive.writestr(
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+                    "T1,08:00:00,08:01:00,S1,1\n"
+                    "T1,08:30:00,08:31:00,S2,2\n"
+                    "T2,09:00:00,09:01:00,S1,1\n"
+                    "T2,09:30:00,09:31:00,S2,2\n",
+                )
+
+            pipeline = make_pipeline(
+                pipeline_id="nominal-main",
+                endpoint=gtfs_zip.as_uri(),
+                filter_config=FilterConfig(
+                    routes=(
+                        FilterEntryConfig(match="R1*", type="include"),
+                    ),
+                ),
+            )
+            instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+            repository = RecordingRepository()
+            loading_service = LoadingService(repository=repository)
+            gtfs_pipeline = GtfsNominalPipeline(
+                loading_service=loading_service,
+                mapping_service=IdentityMappingService(),
+            )
+
+            await gtfs_pipeline.execute(instance=instance, pipeline=pipeline)
+
+            self.assertEqual(1, len(repository.routes))
+            self.assertEqual(1, len(repository.trips))
+            self.assertEqual("R1A", repository.routes[0].route_id)
+            self.assertEqual("T1", repository.trips[0].trip_id)
+
+    async def test_pipeline_applies_operator_filter_wildcard_exclude(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            operation_day = datetime.now(UTC).date().strftime("%Y%m%d")
+
+            gtfs_zip = tmp_dir / "gtfs-operator-filter.zip"
+            with zipfile.ZipFile(gtfs_zip, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr(
+                    "agency.txt",
+                    "agency_id,agency_name,agency_timezone\nA1,Agency One,UTC\nB1,Agency Two,UTC\n",
+                )
+                archive.writestr(
+                    "calendar.txt",
+                    "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n"
+                    f"SVC,1,1,1,1,1,1,1,{operation_day},{operation_day}\n",
+                )
+                archive.writestr(
+                    "routes.txt",
+                    "route_id,agency_id,route_short_name\nR1,A1,Route 1\nR2,B1,Route 2\n",
+                )
+                archive.writestr(
+                    "trips.txt",
+                    "route_id,service_id,trip_id\nR1,SVC,T1\nR2,SVC,T2\n",
+                )
+                archive.writestr(
+                    "stops.txt",
+                    "stop_id,stop_name,stop_lat,stop_lon\n"
+                    "S1,Stop One,48.1,8.1\nS2,Stop Two,48.2,8.2\n",
+                )
+                archive.writestr(
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+                    "T1,08:00:00,08:01:00,S1,1\n"
+                    "T1,08:30:00,08:31:00,S2,2\n"
+                    "T2,09:00:00,09:01:00,S1,1\n"
+                    "T2,09:30:00,09:31:00,S2,2\n",
+                )
+
+            pipeline = make_pipeline(
+                pipeline_id="nominal-main",
+                endpoint=gtfs_zip.as_uri(),
+                filter_config=FilterConfig(
+                    operators=(
+                        FilterEntryConfig(match="B*", type="exclude"),
+                    ),
+                ),
+            )
+            instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+            repository = RecordingRepository()
+            loading_service = LoadingService(repository=repository)
+            gtfs_pipeline = GtfsNominalPipeline(
+                loading_service=loading_service,
+                mapping_service=IdentityMappingService(),
+            )
+
+            await gtfs_pipeline.execute(instance=instance, pipeline=pipeline)
+
+            self.assertEqual(1, len(repository.routes))
+            self.assertEqual(1, len(repository.trips))
+            self.assertEqual("R1", repository.routes[0].route_id)
+            self.assertEqual("T1", repository.trips[0].trip_id)
+
     async def test_pipeline_uses_processor_timezone_for_operation_day_date(self) -> None:
         # Regression guard for A4: operation_day_date must reflect the current date in
         # PROCESSOR_TIMEZONE, never UTC.
@@ -179,7 +347,7 @@ class GtfsNominalPipelineTests(unittest.IsolatedAsyncioTestCase):
 
         class _FixedNowDatetime(datetime):
             @classmethod
-            def now(cls, tz=None):  # type: ignore[override]
+            def now(cls, tz: tzinfo | None = None) -> datetime:  # type: ignore[override]
                 if tz is not None:
                     return fixed_now_berlin.astimezone(tz)
                 return fixed_now_berlin

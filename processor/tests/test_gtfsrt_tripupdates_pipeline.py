@@ -17,7 +17,7 @@ from processor.loading.loading_service import LoadingService
 from processor.loading.models import RouteRecord, StopTimeRecord, TripRecord
 from processor.mapping.mapping_service import MappingService
 from processor.pipelines.gtfsrt_tripupdates_pipeline import GtfsRtTripUpdatesPipeline
-from processor.runtime_config import InstanceConfig, MappingConfig, PipelineConfig
+from processor.runtime_config import FilterConfig, FilterEntryConfig, InstanceConfig, MappingConfig, PipelineConfig
 
 
 class RecordingRepository:
@@ -96,6 +96,24 @@ class RecordingRepository:
         return None
 
 
+def make_pipeline(
+    *,
+    endpoint: str,
+    mapping: MappingConfig | None = None,
+    filter_config: FilterConfig | None = None,
+) -> PipelineConfig:
+    return PipelineConfig(
+        id="realtime-main",
+        name="gtfsrt-tripupdates",
+        type="realtime",
+        cron="*/1 * * * *",
+        endpoint=endpoint,
+        authentication=None,
+        mapping=mapping,
+        filter=filter_config,
+    )
+
+
 class InMemoryGtfsRtTripUpdatesPipeline(GtfsRtTripUpdatesPipeline):
     def __init__(
         self,
@@ -124,11 +142,7 @@ class GtfsRtTripUpdatesPipelineTests(unittest.IsolatedAsyncioTestCase):
             stops_mapping = tmp_dir / "stops.csv"
             stops_mapping.write_text("key,value\nS1,STOP-A\nS2,STOP-B\n", encoding="utf-8")
 
-            pipeline = PipelineConfig(
-                id="realtime-main",
-                name="gtfsrt-tripupdates",
-                type="realtime",
-                cron="*/1 * * * *",
+            pipeline = make_pipeline(
                 endpoint="https://example.test/realtime",
                 mapping=MappingConfig(routes=routes_mapping, stops=stops_mapping),
             )
@@ -204,6 +218,195 @@ class GtfsRtTripUpdatesPipelineTests(unittest.IsolatedAsyncioTestCase):
 
             loaded_stop_ids = {item.stop_id for item in repository.realtime_stop_times}
             self.assertEqual({"STOP-A", "STOP-B"}, loaded_stop_ids)
+
+    async def test_pipeline_applies_route_filter_wildcard_include(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            routes_mapping = tmp_dir / "routes.csv"
+            routes_mapping.write_text("key,value\nR1A,ROUTE-1\nR2B,ROUTE-2\n", encoding="utf-8")
+            stops_mapping = tmp_dir / "stops.csv"
+            stops_mapping.write_text("key,value\nS1,STOP-A\nS2,STOP-B\n", encoding="utf-8")
+
+            pipeline = make_pipeline(
+                endpoint="https://example.test/realtime",
+                mapping=MappingConfig(routes=routes_mapping, stops=stops_mapping),
+                filter_config=FilterConfig(
+                    routes=(
+                        FilterEntryConfig(match="R1*", type="include"),
+                    ),
+                ),
+            )
+            instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+            now = datetime.now(UTC)
+            payload = _build_feed_payload(
+                trip_id="T-1",
+                route_id="R1A",
+                start_date="20260525",
+                stop_updates=(
+                    _StopUpdateInput(
+                        stop_id="S1",
+                        arrival_timestamp=now + timedelta(minutes=2),
+                        departure_timestamp=now + timedelta(minutes=3),
+                        stop_sequence=1,
+                    ),
+                ),
+            )
+
+            mapping_service = MappingService()
+            mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+            repository = RecordingRepository()
+            repository.nominal_stop_times = [
+                StopTimeRecord(
+                    operation_day_date=datetime.strptime("20260525", "%Y%m%d").date(),
+                    trip_id="T-1",
+                    stop_id="STOP-A",
+                    distance_from_start=0.0,
+                    nom_arrival_time=now + timedelta(minutes=2),
+                    nom_departure_time=now + timedelta(minutes=3),
+                    act_arrival_time=None,
+                    act_departure_time=None,
+                    stop_sequence=1,
+                ),
+            ]
+            loading_service = LoadingService(repository=repository)
+
+            gtfsrt_pipeline = InMemoryGtfsRtTripUpdatesPipeline(
+                payload=payload,
+                loading_service=loading_service,
+                mapping_service=mapping_service,
+            )
+
+            await gtfsrt_pipeline.execute(instance=instance, pipeline=pipeline)
+
+            self.assertEqual(1, len(repository.realtime_trips))
+            self.assertEqual("ROUTE-1", repository.realtime_trips[0].route_id)
+
+    async def test_pipeline_applies_route_filter_wildcard_exclude(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            routes_mapping = tmp_dir / "routes.csv"
+            routes_mapping.write_text("key,value\nR1A,ROUTE-1\nR2B,ROUTE-2\n", encoding="utf-8")
+            stops_mapping = tmp_dir / "stops.csv"
+            stops_mapping.write_text("key,value\nS1,STOP-A\nS2,STOP-B\n", encoding="utf-8")
+
+            pipeline = make_pipeline(
+                endpoint="https://example.test/realtime",
+                mapping=MappingConfig(routes=routes_mapping, stops=stops_mapping),
+                filter_config=FilterConfig(
+                    routes=(
+                        FilterEntryConfig(match="R2*", type="exclude"),
+                    ),
+                ),
+            )
+            instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+            now = datetime.now(UTC)
+            payload = _build_feed_payload(
+                trip_id="T-2",
+                route_id="R1A",
+                start_date="20260525",
+                stop_updates=(
+                    _StopUpdateInput(
+                        stop_id="S1",
+                        arrival_timestamp=now + timedelta(minutes=2),
+                        departure_timestamp=now + timedelta(minutes=3),
+                        stop_sequence=1,
+                    ),
+                ),
+            )
+
+            mapping_service = MappingService()
+            mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+            repository = RecordingRepository()
+            repository.nominal_stop_times = [
+                StopTimeRecord(
+                    operation_day_date=datetime.strptime("20260525", "%Y%m%d").date(),
+                    trip_id="T-2",
+                    stop_id="STOP-A",
+                    distance_from_start=0.0,
+                    nom_arrival_time=now + timedelta(minutes=2),
+                    nom_departure_time=now + timedelta(minutes=3),
+                    act_arrival_time=None,
+                    act_departure_time=None,
+                    stop_sequence=1,
+                ),
+            ]
+            loading_service = LoadingService(repository=repository)
+
+            gtfsrt_pipeline = InMemoryGtfsRtTripUpdatesPipeline(
+                payload=payload,
+                loading_service=loading_service,
+                mapping_service=mapping_service,
+            )
+
+            await gtfsrt_pipeline.execute(instance=instance, pipeline=pipeline)
+
+            self.assertEqual(1, len(repository.realtime_trips))
+            self.assertEqual("ROUTE-1", repository.realtime_trips[0].route_id)
+
+    async def test_pipeline_discards_route_filtered_trip_without_route_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            routes_mapping = tmp_dir / "routes.csv"
+            routes_mapping.write_text("key,value\nR1A,ROUTE-1\n", encoding="utf-8")
+            stops_mapping = tmp_dir / "stops.csv"
+            stops_mapping.write_text("key,value\nS1,STOP-A\n", encoding="utf-8")
+
+            pipeline = make_pipeline(
+                endpoint="https://example.test/realtime",
+                mapping=MappingConfig(routes=routes_mapping, stops=stops_mapping),
+                filter_config=FilterConfig(
+                    routes=(
+                        FilterEntryConfig(match="R1*", type="include"),
+                    ),
+                ),
+            )
+            instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+            now = datetime.now(UTC)
+            payload = _build_feed_payload(
+                trip_id="T-NO-ROUTE",
+                route_id=None,
+                start_date="20260525",
+                stop_updates=(
+                    _StopUpdateInput(
+                        stop_id="S1",
+                        arrival_timestamp=now + timedelta(minutes=2),
+                        departure_timestamp=now + timedelta(minutes=3),
+                        stop_sequence=1,
+                    ),
+                ),
+            )
+
+            mapping_service = MappingService()
+            mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+            repository = RecordingRepository()
+            repository.nominal_stop_times = [
+                StopTimeRecord(
+                    operation_day_date=datetime.strptime("20260525", "%Y%m%d").date(),
+                    trip_id="T-NO-ROUTE",
+                    stop_id="STOP-A",
+                    distance_from_start=0.0,
+                    nom_arrival_time=now + timedelta(minutes=2),
+                    nom_departure_time=now + timedelta(minutes=3),
+                    act_arrival_time=None,
+                    act_departure_time=None,
+                    stop_sequence=1,
+                ),
+            ]
+            loading_service = LoadingService(repository=repository)
+
+            gtfsrt_pipeline = InMemoryGtfsRtTripUpdatesPipeline(
+                payload=payload,
+                loading_service=loading_service,
+                mapping_service=mapping_service,
+            )
+
+            await gtfsrt_pipeline.execute(instance=instance, pipeline=pipeline)
+
+            self.assertEqual(0, len(repository.realtime_trips))
+            self.assertEqual(0, len(repository.realtime_stop_times))
 
     async def test_pipeline_processes_past_only_stop_updates(self) -> None:
         pipeline = PipelineConfig(
@@ -1069,7 +1272,7 @@ class _StopUpdateInput:
 
 def _build_feed_payload(
     trip_id: str,
-    route_id: str,
+    route_id: str | None,
     start_date: str,
     stop_updates: tuple[_StopUpdateInput, ...],
     trip_timestamp: datetime | None = None,
@@ -1084,7 +1287,8 @@ def _build_feed_payload(
 
     trip_update = entity.trip_update
     trip_update.trip.trip_id = trip_id
-    trip_update.trip.route_id = route_id
+    if route_id is not None:
+        trip_update.trip.route_id = route_id
     trip_update.trip.start_date = start_date
     trip_update.trip.schedule_relationship = schedule_relationship
     if trip_timestamp is not None:

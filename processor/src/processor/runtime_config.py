@@ -6,6 +6,7 @@ from typing import Literal
 
 PipelineType = Literal["nominal", "realtime"]
 PipelinePolicy = Literal["startupAndSchedule", "schedule"]
+FilterType = Literal["include", "exclude"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +43,19 @@ class MappingConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class FilterEntryConfig:
+    match: str
+    type: FilterType
+    mapping: MappingConfig | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FilterConfig:
+    routes: tuple[FilterEntryConfig, ...] = field(default_factory=tuple)
+    operators: tuple[FilterEntryConfig, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
 class PipelineConfig:
     id: str
     name: str
@@ -51,6 +65,7 @@ class PipelineConfig:
     policy: PipelinePolicy = "schedule"
     authentication: AuthenticationConfig | None = None
     parameters: dict[str, object] = field(default_factory=dict)
+    filter: FilterConfig | None = None
     mapping: MappingConfig | None = None
 
 
