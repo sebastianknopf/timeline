@@ -8,9 +8,18 @@ instance:
         # Optional; defaults to "schedule"
         policy: "startupAndSchedule"
         endpoint: "https://api.example.com/schedule"
-        mapping:
-          stops: "mapping/stops.csv"
-          routes: "mapping/routes.csv"
+        filter:
+          routes:
+            - match: "*-route1"
+              type: "include"
+              mapping:
+                stops: "mapping/stops.csv"
+                routes: "mapping/routes.csv"
+            - match: "*-route2"
+              type: "exclude"
+              mapping:
+                stops: "mapping/stops2.csv"
+                routes: "mapping/routes2.csv"
         parameters:
           fallback_agency_id: "UNKNOWN-AGENCY"
           fallback_agency_name: "Unknown Agency"
@@ -23,9 +32,18 @@ instance:
         policy: "schedule"
         # Optional high-frequency schedule: "*/10 * * * * *" (every 10 seconds)
         endpoint: "https://api.example.com/realtime"
-        mapping:
-          stops: "mapping/stops.csv"
-          routes: "mapping/routes.csv"
+        filter:
+          operators:
+            - match: "*-operator1"
+              type: "include"
+              mapping:
+                stops: "mapping/stops.csv"
+                routes: "mapping/routes.csv"
+            - match: "*-operator2"
+              type: "exclude"
+              mapping:
+                stops: "mapping/stops2.csv"
+                routes: "mapping/routes2.csv"
         authentication:
           username: "${REALTIME_API_USER}"
           password: "${REALTIME_API_PASSWORD}"

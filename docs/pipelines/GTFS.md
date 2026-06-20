@@ -30,6 +30,9 @@ This pipeline uses these shared configuration keys:
 - `cron`
 - `endpoint`
 - `authentication` (optional)
+- `filter` (optional)
+     - `operators`
+     - `routes`
 
 ## Optional Pipeline Parameters
 
@@ -37,6 +40,9 @@ The following optional parameters are currently defined for this pipeline:
 
 - `fallback_agency_id`: fallback value used for `concessionaire_id` when GTFS route/agency linkage is missing
 - `fallback_agency_name`: fallback value used for `concessionaire_name` when GTFS agency name resolution is missing
+
+## Filtering
+During the execution, the pipeline respects the optional `filter` parameters. Filter types (include/exclude) are respeced. If at least one filter is set, only data matching those filters are imported. Agencies are filtered against their ID based on `filter.operators[...].match`. Routes are filtered against their ID based on `filter.routes[...].match`. The filters reduce all underlaying data (routes, trips, stop times, stops) if set. If no `filter` is set at all, the whole feed will be imported.
 
 ## Assumptions
 

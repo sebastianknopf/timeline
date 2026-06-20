@@ -1,3 +1,4 @@
+Apply
 # Configuration Architecture
 
 This document defines the runtime configuration model consumed by the processor.
@@ -36,7 +37,13 @@ Each pipeline object defines:
 - `policy` (optional): execution policy for cron scheduling behavior. Allowed values are `schedule` and `startupAndSchedule`. Default is `schedule`.
 - `authentication` (optional): authentication object when required by the endpoint
 - `parameters` (optional): object containing arbitrary pipeline-specific key/value parameters passed to the selected pipeline implementation
-- `mapping` (optional): mapping file configuration for identifier translation inputs
+- `filter`: filter object containing either `routes` or `operators`
+  - `routes`: list of route filters
+    - `match`: wildcard pattern for route filtering
+    - `type`: filter type, either `include` or `exclude`
+    - `mapping`: mapping file configuration for identifier translation inputs
+      - `stops`: path to a stops mapping file
+      - `routes`: path to a routes mapping file
 
 Pipeline policy behavior:
 
@@ -99,9 +106,13 @@ Minimum validation requirements:
    - `{ token: <value> }`
    - `{ username: <value>, password: <value> }`
 9. If `parameters` is present, it must be a YAML object (mapping). Its keys are pipeline-defined and may vary by pipeline name.
-10. If `mapping` is present, it must be a YAML object (mapping) containing only `stops` and/or `routes`.
-11. If mapping files are provided, they must be readable CSV files containing at least `key` and `value` columns.
-12. If a mapping key contains `*`, it must be interpreted as a wildcard pattern by the mapping resolver.
+10. Each pipeline has a `filter` object containing either `routes` or `operators`.
+11. If `filter` contains `routes`, each route filter must have non-empty `match`, `type` and may contain references to mapping files in `mapping`.
+12. If `filter` contains `operators`, each operator filter must have non-empty `match`, `type` and may contain references to mapping files in and valid `mapping`.
+   - If the key `match` contains a `*` this is interpreted as wildcard during the filtering.
+   - The key `type` must have the value `exclude` or `include`. The value decides whether the objects matching the given value in `match` are included or expluded by the pipeline.
+   - If mapping files are provided, they must be readable CSV files containing at least `key` and `value` columns and encoded as UTF-8.
+   - If a mapping key contains `*`, it must be interpreted as a wildcard pattern by the mapping resolver.
 
 If validation fails, startup must fail and no pipelines are run.
 
@@ -138,3 +149,4 @@ This allows mapping paths in `config.yaml` to be portable across local and conta
 | `PROCESSOR_MAPPING_ROOT` | no | `/etc/mapping` | Root directory for resolving relative mapping file paths. |
 | `PROCESSOR_ALEMBIC_INI_PATH` | no | `/app/alembic.ini` | Path to the Alembic INI file used for database migrations. |
 | `PROCESSOR_TIMEZONE` | no | `UTC` | IANA timezone name (for example `Europe/Berlin`) used as the processor runtime timezone for scheduler and date/time handling. |
+``

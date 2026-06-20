@@ -32,6 +32,13 @@ This pipeline uses these shared configuration keys:
 - `cron`
 - `endpoint`
 - `authentication` (optional)
+- `filter` (optional)
+     - `routes`
+
+## Filtering
+During the execution, the pipeline respects the optional `filter` parameters. Filter types (include/exclude) are respeced. If at least one filter is set, only data matching those filters are imported. Routes are filtered against their ID if set in the trip updates based on `filter.routes[...].match`. If no `filter` is set at all, the whole feed will be imported.
+
+**Note: Please be aware that the `route_id` element in a trip update is optional! This means that trip updates without having `route_id` set are discarded entirely if a filter on route is set!**
 
 ## Assumptions
 
