@@ -237,9 +237,11 @@
           "mode": "details"
         },
         "view": {
-          "allLayers": true,
+          "allLayers": false,
           "id": "fit",
+          "lastOnly": false,
           "lat": 0,
+          "layer": "Verspätung",
           "lon": 0,
           "zoom": 15
         }
@@ -710,6 +712,6 @@
   "timezone": "browser",
   "title": "Übersicht",
   "uid": "dfnjo7bwplq0wf",
-  "version": 14,
+  "version": 16,
   "weekStart": ""
 }
