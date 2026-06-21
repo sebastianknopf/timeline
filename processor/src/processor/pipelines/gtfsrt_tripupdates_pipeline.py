@@ -126,6 +126,7 @@ class GtfsRtTripUpdatesPipeline:
                 trip_timestamp_utc=_timestamp_to_utc(trip_update.timestamp) if trip_update.timestamp else None,
                 feed_timestamp_utc=feed_timestamp_utc,
             )
+            
             if not stop_updates:
                 continue
 
@@ -155,6 +156,7 @@ class GtfsRtTripUpdatesPipeline:
                 trip=mapped_trip,
                 stop_times=mapped_stop_times,
             )
+
             loaded_trip_count += 1
             loaded_stop_time_count += len(mapped_stop_times)
 

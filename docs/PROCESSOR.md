@@ -91,6 +91,19 @@ Mapping ownership decision:
 - mapping file parsing and mapping application are owned by the central mapping service
 - the central load service receives already mapped identifiers and focuses on persistence and matching
 
+### Central Matching Service
+
+The central matching service is invoked by the loading service when importing a realtime update with trip IDs not matching the nominal trip IDs.
+
+The service can be called independly per instance as the pipelines may run asynchronozsly and multiple instances may run at the same time. As a database connection will be required,
+repository instance of the loading service is shared.
+
+Its responsibilies are:
+
+- take up the trip record by the loading service
+- match the trip against the route ID, the operation day date and the scheduled start time
+- return the matched trip ID
+
 ### Central Load Service
 
 The central load service owns all load-phase responsibilities:
@@ -107,7 +120,7 @@ The central load service owns all load-phase responsibilities:
 - deriving `dim_trips.act_start_time` and `dim_trips.act_end_time` from first/last nominal departure rows ordered by `stop_sequence` (with nominal departure tie-break), with nominal departure fallback when realtime values are missing
 - persisting `dim_trips.act_end_time` only after the derived end candidate timestamp is reached (`<= now`), otherwise keeping it `NULL`
 
-#### Nominal write strategy
+#### Nominal Data Processing
 
 Nominal trips (`dim_trips`) and nominal stop times (`fact_stop_times`) use a **selective upsert** strategy that protects realtime fields:
 
@@ -160,10 +173,12 @@ Matching workflow for realtime-to-nominal trip resolution:
   - if multiple nominal trips satisfy the fallback criteria, select the best match with the smallest arrival/departure time deviation
   - if all stops satisfy sequence and tolerance conditions, treat that nominal trip as the final matched trip
 
-#### Realtime data post-processing
+#### Realtime  Data Processing
 
 After receiving raw realtime records from a pipeline and fetching the corresponding nominal stop times from the database, the loading service executes the following post-processing steps in order before writing to the database.
 Pipelines must not perform any of these steps themselves; they only supply identity fields and the raw event data.
+
+If a trip is not found by its ID in the nominal data, the MatchingService is used to derive a matching trip ID.
 
 **Step 1 — Nominal baseline merge and delay propagation** (`_apply_nominal_baseline`)
 
