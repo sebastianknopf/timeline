@@ -21,8 +21,11 @@ class RecordingRepository(TimelineRepositoryInterface):
         self.realtime_stop_times: list[StopTimeRecord] = []
         self.nominal_stop_times: list[StopTimeRecord] = []
         self.nominal_trips: list[TripRecord] = []
-        # Controls find_nominal_trip_id_by_properties: key=(route_id, date, scheduled_start_time)
-        self.alternative_trip_id_lookup: dict[tuple[str, date, str], str] = {}
+        # Controls find_nominal_trip_id_by_properties: key=(route_id, date, start_time, end_time, start_stop_id, end_stop_id)
+        self.alternative_trip_id_lookup: dict[
+            tuple[str | None, date, datetime | None, datetime | None, str | None, str | None],
+            list[str],
+        ] = {}
 
     async def upsert_nominal_stops(self, instance_id: str, stops: list[StopRecord]) -> None:
         self.calls.append(("upsert_nominal_stops", instance_id, len(stops)))
@@ -135,10 +138,22 @@ class RecordingRepository(TimelineRepositoryInterface):
         self,
         instance_id: str,
         operation_day_date: date,
-        route_id: str,
-        scheduled_start_time: datetime,
-    ) -> str | None:
-        return self.alternative_trip_id_lookup.get((route_id, operation_day_date, scheduled_start_time))
+        route_id: str | None,
+        scheduled_start_time: datetime | None,
+        scheduled_end_time: datetime | None,
+        scheduled_start_stop_id: str | None,
+        scheduled_end_stop_id: str | None,
+    ) -> list[str] | None:
+        return self.alternative_trip_id_lookup.get(
+            (
+                route_id,
+                operation_day_date,
+                scheduled_start_time,
+                scheduled_end_time,
+                scheduled_start_stop_id,
+                scheduled_end_stop_id,
+            )
+        )
 
 
 class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -1423,8 +1438,20 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             stop_sequence=1,
         )
         repository.nominal_stop_times = [nominal_stop]
-        # Alternative matching maps route-1 + "08:10" → "nominal-T1".
-        repository.alternative_trip_id_lookup[("route-1", op_day, now + timedelta(minutes=10))] = "nominal-T1"
+        scheduled_start = now + timedelta(minutes=10)
+        scheduled_end = now + timedelta(minutes=40)
+        scheduled_start_stop = "A"
+        scheduled_end_stop = "B"
+        repository.alternative_trip_id_lookup[
+            (
+                "route-1",
+                op_day,
+                scheduled_start,
+                scheduled_end,
+                scheduled_start_stop,
+                scheduled_end_stop,
+            )
+        ] = ["nominal-T1"]
 
         # Realtime feed uses a different trip_id "feed-T1" that has no nominal entry.
         trip = TripRecord(
@@ -1434,7 +1461,10 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operator_id=None,
             operator_name=None,
             schedule_relationship="SCHEDULED",
-            _t_scheduled_start_time=now + timedelta(minutes=10),
+            _t_scheduled_start_time=scheduled_start,
+            _t_scheduled_end_time=scheduled_end,
+            _t_scheduled_start_stop_id=scheduled_start_stop,
+            _t_scheduled_end_stop_id=scheduled_end_stop,
         )
         stop_times = [
             StopTimeRecord(
@@ -1475,6 +1505,9 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operator_name=None,
             schedule_relationship="SCHEDULED",
             _t_scheduled_start_time=datetime(year=2026, month=6, day=1, hour=9, minute=0, second=0),
+            _t_scheduled_end_time=datetime(year=2026, month=6, day=1, hour=9, minute=45, second=0),
+            _t_scheduled_start_stop_id="A",
+            _t_scheduled_end_stop_id="B",
         )
         stop_times = [
             StopTimeRecord(
