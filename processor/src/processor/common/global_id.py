@@ -12,6 +12,9 @@ class GlobalId:
     def is_global_id(input: str) -> bool:
         """Returns True if input is a global ID."""
 
+        if input is None:
+            return False
+
         splitted: list[str] = input.split(":")
         return len(splitted) >= 3 and not any([True if e.strip() == "" else False for e in splitted]) and splitted[0].isalpha()
     
