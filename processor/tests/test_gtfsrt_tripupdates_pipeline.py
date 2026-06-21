@@ -91,7 +91,7 @@ class RecordingRepository:
         instance_id: str,
         operation_day_date: date,
         route_id: str,
-        scheduled_start_time_str: str,
+        scheduled_start_time: datetime,
     ) -> str | None:
         return None
 
@@ -101,6 +101,7 @@ def make_pipeline(
     endpoint: str,
     mapping: MappingConfig | None = None,
     filter_config: FilterConfig | None = None,
+    timezone: str = "UTC",
 ) -> PipelineConfig:
     return PipelineConfig(
         id="realtime-main",
@@ -108,6 +109,7 @@ def make_pipeline(
         type="realtime",
         cron="*/1 * * * *",
         endpoint=endpoint,
+        timezone=timezone,
         authentication=None,
         mapping=mapping,
         filter=filter_config,
@@ -595,6 +597,65 @@ class GtfsRtTripUpdatesPipelineTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(expected_arrival, loaded_stop_time.act_arrival_time)
         self.assertEqual(expected_departure, loaded_stop_time.act_departure_time)
+
+    async def test_pipeline_parses_trip_descriptor_start_time_with_timezone_and_day_rollover(self) -> None:
+        pipeline = make_pipeline(
+            endpoint="https://example.test/realtime",
+            timezone="Europe/Berlin",
+        )
+        instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+        start_date = "20260525"
+        # 25:10 local feed time should roll into next day 01:10 in source timezone,
+        # then be converted to processor timezone (UTC here).
+        start_time = "25:10:00"
+
+        payload = _build_feed_payload(
+            trip_id="T-START",
+            route_id="R-START",
+            start_date=start_date,
+            start_time=start_time,
+            stop_updates=(
+                _StopUpdateInput(
+                    stop_id="S1",
+                    stop_sequence=1,
+                    arrival_timestamp=datetime(2026, 5, 25, 6, 0, tzinfo=UTC),
+                    departure_timestamp=datetime(2026, 5, 25, 6, 1, tzinfo=UTC),
+                ),
+            ),
+        )
+
+        mapping_service = MappingService()
+        mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+        repository = RecordingRepository()
+        repository.nominal_stop_times = [
+            StopTimeRecord(
+                operation_day_date=datetime.strptime(start_date, "%Y%m%d").date(),
+                trip_id="T-START",
+                stop_id="S1",
+                distance_from_start=0.0,
+                nom_arrival_time=datetime(2026, 5, 25, 6, 0, tzinfo=UTC),
+                nom_departure_time=datetime(2026, 5, 25, 6, 1, tzinfo=UTC),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+        ]
+        loading_service = LoadingService(repository=repository)
+
+        gtfsrt_pipeline = InMemoryGtfsRtTripUpdatesPipeline(
+            payload=payload,
+            loading_service=loading_service,
+            mapping_service=mapping_service,
+            processor_timezone_name="UTC",
+        )
+
+        await gtfsrt_pipeline.execute(instance=instance, pipeline=pipeline)
+
+        self.assertEqual(1, len(repository.realtime_trips))
+        loaded_trip = repository.realtime_trips[0]
+        expected_start = datetime(2026, 5, 25, 23, 10, tzinfo=UTC)
+        self.assertEqual(expected_start, loaded_trip._t_scheduled_start_time)
 
     async def test_trip_act_boundaries_follow_first_and_last_stop_order(self) -> None:
         pipeline = PipelineConfig(
@@ -1275,6 +1336,7 @@ def _build_feed_payload(
     route_id: str | None,
     start_date: str,
     stop_updates: tuple[_StopUpdateInput, ...],
+    start_time: str | None = None,
     trip_timestamp: datetime | None = None,
     schedule_relationship: int = 0,
 ) -> bytes:
@@ -1290,6 +1352,8 @@ def _build_feed_payload(
     if route_id is not None:
         trip_update.trip.route_id = route_id
     trip_update.trip.start_date = start_date
+    if start_time is not None:
+        trip_update.trip.start_time = start_time
     trip_update.trip.schedule_relationship = schedule_relationship
     if trip_timestamp is not None:
         trip_update.timestamp = int(trip_timestamp.timestamp())

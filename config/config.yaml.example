@@ -47,6 +47,8 @@ instance:
         authentication:
           username: "${REALTIME_API_USER}"
           password: "${REALTIME_API_PASSWORD}"
+        timezone: "Europe/Berlin"
+        # Timezone must match the corresponding GTFS feed in GTFS-RT timezone
     export:
       - id: "daily-trip-export"
         name: "timeline-export"

@@ -24,14 +24,14 @@ class MatchingService:
         match any nominal entry for the operation day.  Returns the matched nominal trip_id, or
         None when no unambiguous match can be found.
         """
-        if trip.scheduled_start_time_str is None:
+        if trip._t_scheduled_start_time is None:
             return None
         
         return await self._repository.find_nominal_trip_id_by_properties(
             instance_id=instance_id,
             operation_day_date=trip.operation_day_date,
             route_id=trip.route_id,
-            scheduled_start_time_str=trip.scheduled_start_time_str,
+            scheduled_start_time=trip._t_scheduled_start_time,
         )
 
     

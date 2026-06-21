@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 from croniter import croniter
@@ -142,6 +143,7 @@ class ConfigurationVerifier:
         )
 
         policy = self._parse_policy(raw_pipeline.get("policy"), pipeline_id)
+        timezone_name = self._parse_timezone(raw_pipeline.get("timezone"), pipeline_id)
 
         parameters = raw_pipeline.get("parameters", {})
         if not isinstance(parameters, dict):
@@ -163,6 +165,7 @@ class ConfigurationVerifier:
             cron=cron_expression,
             endpoint=endpoint,
             policy=policy,
+            timezone=timezone_name,
             authentication=authentication,
             parameters=parameters,
             filter=filter_config,
@@ -274,6 +277,25 @@ class ConfigurationVerifier:
             )
 
         return normalized_policy
+
+    def _parse_timezone(self, raw_timezone: Any, pipeline_id: str) -> str:
+        if raw_timezone is None:
+            return "UTC"
+
+        if not isinstance(raw_timezone, str) or not raw_timezone.strip():
+            raise ConfigurationError(
+                f"Pipeline '{pipeline_id}' timezone must be a non-empty string."
+            )
+
+        timezone_name = raw_timezone.strip()
+        try:
+            ZoneInfo(timezone_name)
+        except ZoneInfoNotFoundError as exc:
+            raise ConfigurationError(
+                f"Pipeline '{pipeline_id}' has invalid timezone '{timezone_name}'."
+            ) from exc
+
+        return timezone_name
 
     def _parse_authentication(
         self,

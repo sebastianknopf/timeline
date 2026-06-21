@@ -21,7 +21,7 @@ class RecordingRepository(TimelineRepositoryInterface):
         self.realtime_stop_times: list[StopTimeRecord] = []
         self.nominal_stop_times: list[StopTimeRecord] = []
         self.nominal_trips: list[TripRecord] = []
-        # Controls find_nominal_trip_id_by_properties: key=(route_id, date, start_time_str)
+        # Controls find_nominal_trip_id_by_properties: key=(route_id, date, scheduled_start_time)
         self.alternative_trip_id_lookup: dict[tuple[str, date, str], str] = {}
 
     async def upsert_nominal_stops(self, instance_id: str, stops: list[StopRecord]) -> None:
@@ -136,9 +136,9 @@ class RecordingRepository(TimelineRepositoryInterface):
         instance_id: str,
         operation_day_date: date,
         route_id: str,
-        scheduled_start_time_str: str,
+        scheduled_start_time: datetime,
     ) -> str | None:
-        return self.alternative_trip_id_lookup.get((route_id, operation_day_date, scheduled_start_time_str))
+        return self.alternative_trip_id_lookup.get((route_id, operation_day_date, scheduled_start_time))
 
 
 class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -1424,7 +1424,7 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
         )
         repository.nominal_stop_times = [nominal_stop]
         # Alternative matching maps route-1 + "08:10" → "nominal-T1".
-        repository.alternative_trip_id_lookup[("route-1", op_day, "08:10:00")] = "nominal-T1"
+        repository.alternative_trip_id_lookup[("route-1", op_day, now + timedelta(minutes=10))] = "nominal-T1"
 
         # Realtime feed uses a different trip_id "feed-T1" that has no nominal entry.
         trip = TripRecord(
@@ -1434,7 +1434,7 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operator_id=None,
             operator_name=None,
             schedule_relationship="SCHEDULED",
-            scheduled_start_time_str="08:10:00",
+            _t_scheduled_start_time=now + timedelta(minutes=10),
         )
         stop_times = [
             StopTimeRecord(
@@ -1474,7 +1474,7 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operator_id=None,
             operator_name=None,
             schedule_relationship="SCHEDULED",
-            scheduled_start_time_str="09:00:00",
+            _t_scheduled_start_time=datetime(year=2026, month=6, day=1, hour=9, minute=0, second=0),
         )
         stop_times = [
             StopTimeRecord(
@@ -1500,7 +1500,7 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(0, len(repository.realtime_trips))
         self.assertEqual(0, len(repository.realtime_stop_times))
 
-    async def test_non_added_trip_discarded_when_no_scheduled_start_time_str(self) -> None:
+    async def test_non_added_trip_discarded_when_no_scheduled_start_time(self) -> None:
         repository = RecordingRepository()
         service = LoadingService(repository=repository)
 
@@ -1512,7 +1512,7 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             operator_id=None,
             operator_name=None,
             schedule_relationship="SCHEDULED",
-            scheduled_start_time_str=None,  # No start time → alternative matching impossible.
+            _t_scheduled_start_time=None,  # No start time → alternative matching impossible.
         )
         stop_times = [
             StopTimeRecord(

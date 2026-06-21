@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime
 from typing import Callable, TypeVar
 
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
@@ -124,14 +124,14 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
         instance_id: str,
         operation_day_date: date,
         route_id: str,
-        scheduled_start_time_str: str,
+        scheduled_start_time: datetime,
     ) -> str | None:
         return await asyncio.to_thread(
             self._find_nominal_trip_id_by_properties_sync,
             instance_id,
             operation_day_date,
             route_id,
-            scheduled_start_time_str,
+            scheduled_start_time,
         )
 
     async def get_export_dataset(
@@ -630,30 +630,19 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
         instance_id: str,
         operation_day_date: date,
         route_id: str,
-        scheduled_start_time_str: str,
+        scheduled_start_time: datetime,
     ) -> str | None:
-        try:
-            parts = scheduled_start_time_str.split(":")
-            target_hour = int(parts[0]) % 24
-            target_minute = int(parts[1])
-        except (ValueError, IndexError):
-            return None
-
         with self._session_factory() as session:
-            rows = list(
+            matches = list(
                 session.execute(
-                    select(TripDimension.trip_id, TripDimension.nom_start_time)
+                    select(TripDimension.trip_id)
                     .where(TripDimension.instance_id == instance_id)
                     .where(TripDimension.operation_day_date == operation_day_date)
                     .where(TripDimension.route_id == route_id)
-                ).all()
+                    .where(TripDimension.nom_start_time == scheduled_start_time)
+                ).scalars()
             )
 
-        matches = [
-            trip_id
-            for trip_id, nom_start_time in rows
-            if nom_start_time.hour == target_hour and nom_start_time.minute == target_minute
-        ]
         return matches[0] if len(matches) == 1 else None
 
     def _trip_values(self, instance_id: str, trip: TripRecord) -> dict[str, object]:

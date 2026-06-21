@@ -13,6 +13,77 @@ from processor.config_verifier import ConfigurationError, ConfigurationVerifier
 
 
 class ConfigurationVerifierTests(unittest.TestCase):
+    def test_load_and_validate_defaults_pipeline_timezone_to_utc(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            config_file = tmp_dir / "config.yaml"
+            config_file.write_text(
+                """
+instance:
+  - id: demo
+    pipeline:
+      - id: nominal-main
+        name: gtfs
+        type: nominal
+        cron: "0 2 * * *"
+        endpoint: "https://example.test/nominal"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            verifier = ConfigurationVerifier(mapping_root=tmp_dir)
+            parsed = verifier.load_and_validate(config_file)
+
+            self.assertEqual("UTC", parsed.instances[0].pipelines[0].timezone)
+
+    def test_load_and_validate_accepts_pipeline_timezone(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            config_file = tmp_dir / "config.yaml"
+            config_file.write_text(
+                """
+instance:
+  - id: demo
+    pipeline:
+      - id: realtime-main
+        name: gtfsrt-tripupdates
+        type: realtime
+        cron: "* * * * *"
+        endpoint: "https://example.test/realtime"
+        timezone: "Europe/Berlin"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            verifier = ConfigurationVerifier(mapping_root=tmp_dir)
+            parsed = verifier.load_and_validate(config_file)
+
+            self.assertEqual("Europe/Berlin", parsed.instances[0].pipelines[0].timezone)
+
+    def test_load_and_validate_rejects_invalid_pipeline_timezone(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            config_file = tmp_dir / "config.yaml"
+            config_file.write_text(
+                """
+instance:
+  - id: demo
+    pipeline:
+      - id: realtime-main
+        name: gtfsrt-tripupdates
+        type: realtime
+        cron: "* * * * *"
+        endpoint: "https://example.test/realtime"
+        timezone: "Mars/OlympusMons"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            verifier = ConfigurationVerifier(mapping_root=tmp_dir)
+
+            with self.assertRaises(ConfigurationError):
+                verifier.load_and_validate(config_file)
+
     def test_load_and_validate_accepts_valid_configuration(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir_str:
             tmp_dir = Path(tmp_dir_str)

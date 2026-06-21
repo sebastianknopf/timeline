@@ -31,9 +31,12 @@ This pipeline uses these shared configuration keys:
 - `type` (must be `realtime` for this pipeline)
 - `cron`
 - `endpoint`
+- `timezone` (optional, but strictly recommended! Default is UTC)
 - `authentication` (optional)
 - `filter` (optional)
      - `routes`
+
+As the GTFS-RT feed itself does not contain any timezone information, it is **strictly recommended to set the `timezone` config** to the timezone of the corresponding nominal GTFS feed!
 
 ## Filtering
 During the execution, the pipeline respects the optional `filter` parameters. Filter types (include/exclude) are respeced. If at least one filter is set, only data matching those filters are imported. Routes are filtered against their ID if set in the trip updates based on `filter.routes[...].match`. If no `filter` is set at all, the whole feed will be imported.

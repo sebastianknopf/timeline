@@ -45,10 +45,14 @@ class TripRecord:
     nom_total_distance: float | None = None
     act_total_distance: float | None = None
     schedule_relationship: str = "UNKNOWN"
-    # Optional: scheduled departure time string from the realtime feed's TripDescriptor
-    # (format: "HH:MM:SS").  Used only as a hint for alternative nominal trip-id resolution
-    # when the primary trip_id lookup in the loading service fails to find nominal data.
-    scheduled_start_time_str: str | None = None
+    # Optional: realtime delivered departure and arrival time. Only used for matching
+    # when the primary trip ID lookup in the loading service fails to find nominal data.
+    # Those fields are NEVER written into the database!
+    # Prefix _t_ is used for 'temporary' field.
+    _t_scheduled_start_time: datetime | None = None
+    _t_scheduled_end_time: datetime | None = None
+    _t_scheduled_start_stop_id: str | None = None
+    _t_scheduled_end_stop_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

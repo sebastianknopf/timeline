@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Protocol
 
 from ..exports.models import ExportDataSet
@@ -125,13 +125,13 @@ class TimelineRepositoryInterface(Protocol):
         instance_id: str,
         operation_day_date: date,
         route_id: str,
-        scheduled_start_time_str: str,
+        scheduled_start_time: datetime,
     ) -> str | None:
         """Find the nominal trip_id for a given route and scheduled start time on an operation day.
 
         Used as a secondary lookup when the primary trip_id from the realtime feed does not
-        match any nominal trip row.  The lookup is based on route_id and the hour/minute of
-        the nominal start time stored in dim_trips.  Returns the trip_id when exactly one match
+        match any nominal trip row.  The lookup is based on route_id and exact scheduled
+        start datetime in processor timezone. Returns the trip_id when exactly one match
         is found; returns None when no match or when the result is ambiguous.
         """
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, time, datetime, timedelta
 import fnmatch
 from typing import Iterable
 from urllib.request import Request, urlopen
@@ -53,6 +53,8 @@ class GtfsRtTripUpdatesPipeline:
                 f"GtfsRtTripUpdatesPipeline cannot execute pipeline '{pipeline.id}' with name '{pipeline.name}'."
             )
 
+        pipeline_timezone: ZoneInfo = _safe_zoneinfo(pipeline.timezone)
+        
         payload = self._read_endpoint_payload(endpoint=pipeline.endpoint, authentication=pipeline.authentication)
         feed_message = self._decode_feed_message(payload)
 
@@ -100,7 +102,13 @@ class GtfsRtTripUpdatesPipeline:
                     )
                     continue
 
-            scheduled_start_time_str: str | None = (trip_descriptor.start_time or "").strip() or None
+            scheduled_start_time: datetime | None = _parse_gtfs_time(
+                raw_value=(trip_descriptor.start_time or "").strip(),
+                operation_day=operation_day,
+                source_timezone=pipeline_timezone,
+                target_timezone=self._processor_timezone
+            )
+
             trip_schedule_relationship = _enum_name(
                 enum_descriptor=gtfs_realtime_pb2.TripDescriptor.ScheduleRelationship,
                 value=trip_descriptor.schedule_relationship,
@@ -141,7 +149,7 @@ class GtfsRtTripUpdatesPipeline:
                 trip_id=trip_id,
                 route_id=route_id,
                 schedule_relationship=trip_schedule_relationship,
-                scheduled_start_time_str=scheduled_start_time_str,
+                scheduled_start_time=scheduled_start_time,
             )
 
             mapped_trip, mapped_stop_times = await self._mapping_service.map_records_for_loading(
@@ -266,7 +274,7 @@ class GtfsRtTripUpdatesPipeline:
         trip_id: str,
         route_id: str,
         schedule_relationship: str,
-        scheduled_start_time_str: str | None,
+        scheduled_start_time: datetime | None,
     ) -> TripRecord:
         # Only identity fields are set here.  All derived trip boundary fields
         # (nom/act start/end times, stop IDs, distances) are resolved from nominal
@@ -280,7 +288,7 @@ class GtfsRtTripUpdatesPipeline:
             operator_id=None,
             operator_name=None,
             schedule_relationship=schedule_relationship,
-            scheduled_start_time_str=scheduled_start_time_str,
+            _t_scheduled_start_time=scheduled_start_time,
         )
 
     def _build_stop_time_records(
@@ -381,6 +389,38 @@ def _parse_service_date(raw_value: str, fallback_date: date) -> date:
         return datetime.strptime(raw_value, "%Y%m%d").date()
     except ValueError:
         return fallback_date
+    
+def _parse_gtfs_time(
+    raw_value: str,
+    operation_day: date,
+    source_timezone: ZoneInfo,
+    target_timezone: ZoneInfo,
+) -> datetime | None:
+    if not raw_value:
+        return None
+
+    parts = raw_value.split(":")
+    if len(parts) != 3:
+        return None
+
+    hours = _parse_int(parts[0])
+    minutes = _parse_int(parts[1])
+    seconds = _parse_int(parts[2])
+    if hours is None or minutes is None or seconds is None:
+        return None
+    if minutes < 0 or minutes >= 60 or seconds < 0 or seconds >= 60 or hours < 0:
+        return None
+
+    base = datetime.combine(operation_day, time(0, 0), tzinfo=source_timezone)
+    source_timestamp = base + timedelta(hours=hours, minutes=minutes, seconds=seconds)
+    return source_timestamp.astimezone(target_timezone)
+
+
+def _parse_int(raw_value: str) -> int | None:
+    try:
+        return int(raw_value)
+    except ValueError:
+        return None
 
 
 def _enum_name(enum_descriptor: object, value: int, fallback: str) -> str:

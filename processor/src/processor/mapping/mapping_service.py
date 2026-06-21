@@ -90,6 +90,10 @@ class MappingService(MappingServiceInterface):
             nom_total_distance=trip.nom_total_distance,
             act_total_distance=trip.act_total_distance,
             schedule_relationship=trip.schedule_relationship,
+            _t_scheduled_start_time=trip._t_scheduled_start_time,
+            _t_scheduled_end_time=trip._t_scheduled_end_time,
+            _t_scheduled_start_stop_id=self._map_value(trip._t_scheduled_start_stop_id, mapping_data.stops),
+            _t_scheduled_end_stop_id=self._map_value(trip._t_scheduled_end_stop_id, mapping_data.stops),
         )
 
         mapped_stop_times = [
@@ -121,7 +125,10 @@ class MappingService(MappingServiceInterface):
             )
         return mapping_data
 
-    def _map_value(self, value: str, mapping_entries: tuple[tuple[str, str], ...]) -> str:
+    def _map_value(self, value: str | None, mapping_entries: tuple[tuple[str, str], ...]) -> str | None:
+        if value is None:
+            return None
+
         for key, mapped_value in mapping_entries:
             if key == value:
                 return mapped_value

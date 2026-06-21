@@ -63,6 +63,8 @@ class PipelineConfig:
     cron: str
     endpoint: str
     policy: PipelinePolicy = "schedule"
+    # Optional per-pipeline source timezone used for feed-local schedule fields.
+    timezone: str = "UTC"
     authentication: AuthenticationConfig | None = None
     parameters: dict[str, object] = field(default_factory=dict)
     filter: FilterConfig | None = None
