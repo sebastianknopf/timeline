@@ -581,6 +581,7 @@
           "decimals": 1,
           "fieldMinMax": false,
           "mappings": [],
+          "noValue": "-",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -709,6 +710,6 @@
   "timezone": "browser",
   "title": "Übersicht",
   "uid": "dfnjo7bwplq0wf",
-  "version": 12,
+  "version": 14,
   "weekStart": ""
 }
