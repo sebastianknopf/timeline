@@ -516,6 +516,7 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                         act_end_time=trip.act_end_time,
                         act_total_distance=trip.act_total_distance,
                         schedule_relationship=trip.schedule_relationship,
+                        realtime_assignment_method=trip.realtime_assignment_method,
                     )
                 )
                 session.execute(stmt)

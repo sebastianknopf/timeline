@@ -67,10 +67,12 @@ class LoadingService:
             trip_id=trip.trip_id,
         )
 
+        realtime_assignment_method: str | None = None
+        
         if nominal_stop_times:
-            realtime_assignment_method: str = "DIRECT"
+            realtime_assignment_method = "DIRECT"    
         else:
-            realtime_assignment_method: str = "MATCHING"
+            realtime_assignment_method = "MATCHING"
             
             # This is a trip which cannot be matched by ID directly. MappingService is up to find
             # the trip in multiple steps. See documentation of MatchingService for more information.            
