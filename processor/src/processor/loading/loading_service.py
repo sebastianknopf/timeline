@@ -67,14 +67,27 @@ class LoadingService:
             trip_id=trip.trip_id,
         )
 
-        if not nominal_stop_times:
+        if nominal_stop_times:
+            realtime_assignment_method: str = "DIRECT"
+        else:
+            realtime_assignment_method: str = "MATCHING"
+            
             # This is a trip which cannot be matched by ID directly. MappingService is up to find
             # the trip in multiple steps. See documentation of MatchingService for more information.            
             matching_service: MatchingService = MatchingService(self._repository)
-            matched_trip_id: str = await matching_service.match(
+            matched_trip_id: str | None = await matching_service.match(
                 instance_id=instance_id,
                 trip=trip,
             )
+
+            if matched_trip_id is None:
+                LOGGER.debug(
+                    "realtime_trip_discarded_no_nominal_match",
+                    instance_id=instance_id,
+                    trip_id=trip.trip_id,
+                    operation_day_date=str(trip.operation_day_date),
+                )
+                return
             
             nominal_stop_times = await self._repository.get_nominal_stop_times_for_trip(
                 instance_id=instance_id,
@@ -143,6 +156,11 @@ class LoadingService:
             nominal_stop_times=nominal_stop_times,
             normalized_stop_times=normalized_stop_times,
             nominal_trip=nominal_trip,
+        )
+
+        normalized_trip = replace(
+            normalized_trip,
+            realtime_assignment_method=realtime_assignment_method,
         )
 
         # Matching strategy hooks belong here while DB writes remain in the repository.
