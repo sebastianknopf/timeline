@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Callable, TypeVar
 
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
@@ -123,8 +123,11 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
         self,
         instance_id: str,
         operation_day_date: date,
-        route_id: str,
-        scheduled_start_time: datetime,
+        route_id: str | None,
+        scheduled_start_time: datetime | None,
+        scheduled_end_time: datetime | None,
+        scheduled_start_stop_id: str | None,
+        scheduled_end_stop_id: str | None
     ) -> str | None:
         return await asyncio.to_thread(
             self._find_nominal_trip_id_by_properties_sync,
@@ -132,6 +135,9 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
             operation_day_date,
             route_id,
             scheduled_start_time,
+            scheduled_end_time,
+            scheduled_start_stop_id,
+            scheduled_end_stop_id
         )
 
     async def get_export_dataset(
@@ -629,21 +635,40 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
         self,
         instance_id: str,
         operation_day_date: date,
-        route_id: str,
-        scheduled_start_time: datetime,
-    ) -> str | None:
-        with self._session_factory() as session:
-            matches = list(
-                session.execute(
-                    select(TripDimension.trip_id)
-                    .where(TripDimension.instance_id == instance_id)
-                    .where(TripDimension.operation_day_date == operation_day_date)
-                    .where(TripDimension.route_id == route_id)
-                    .where(TripDimension.nom_start_time == scheduled_start_time)
-                ).scalars()
-            )
+        route_id: str | None,
+        scheduled_start_time: datetime | None,
+        scheduled_end_time: datetime | None,
+        scheduled_start_stop_id: str | None,
+        scheduled_end_stop_id: str | None
+    ) -> list[str] | None:
 
-        return matches[0] if len(matches) == 1 else None
+        stmt = (
+            select(TripDimension.trip_id)
+            .where(TripDimension.instance_id == instance_id)
+            .where(TripDimension.operation_day_date == operation_day_date)
+        )
+
+        if route_id is not None:
+            stmt = stmt.where(TripDimension.route_id == route_id)
+
+        if scheduled_start_time is not None:
+            stmt = stmt.where(TripDimension.nom_start_time >= (scheduled_start_time - timedelta(seconds=60)))
+            stmt = stmt.where(TripDimension.nom_start_time <= (scheduled_start_time + timedelta(seconds=60)))
+
+        if scheduled_end_time is not None:
+            stmt = stmt.where(TripDimension.nom_end_time >= (scheduled_end_time - timedelta(seconds=60)))
+            stmt = stmt.where(TripDimension.nom_end_time <= (scheduled_end_time + timedelta(seconds=60)))
+
+        if scheduled_start_stop_id is not None:
+            stmt = stmt.where(TripDimension.nom_start_stop_id.like(f"{scheduled_start_stop_id}%"))
+
+        if scheduled_end_stop_id is not None:
+            stmt = stmt.where(TripDimension.nom_end_stop_id.like(f"{scheduled_end_stop_id}%"))
+
+        with self._session_factory() as session:
+            matches = list(session.execute(stmt).scalars())
+
+        return matches if matches else None
 
     def _trip_values(self, instance_id: str, trip: TripRecord) -> dict[str, object]:
         return {
