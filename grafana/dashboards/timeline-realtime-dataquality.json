@@ -1,0 +1,310 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 9,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": false,
+      "tags": [
+        "timeline",
+        "overview"
+      ],
+      "targetBlank": false,
+      "title": "Übersicht",
+      "tooltip": "",
+      "type": "dashboards",
+      "url": ""
+    }
+  ],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timeline-postgres"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "DIRECT"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "suffix: %"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "MATCHING"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "suffix: %"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "UNKNOWN"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#d1d1d1",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "suffix: %"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.85,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "auto",
+        "showValue": "never",
+        "stacking": "normal",
+        "tooltip": {
+          "mode": "multi",
+          "sort": "asc"
+        },
+        "xTickLabelRotation": -45,
+        "xTickLabelSpacing": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timeline-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  routes.route_name AS \"Linie\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          realtime_assignment_method = 'DIRECT'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"DIRECT\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          realtime_assignment_method = 'MATCHING'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"MATCHING\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          realtime_assignment_method IS NULL\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"UNKNOWN\"\r\nFROM\r\n  dim_trips trips\r\n  INNER JOIN dim_routes routes ON routes.route_id = trips.route_id\r\nWHERE\r\n  operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND trips.instance_id IN (${instance:sqlstring})\r\n  AND COALESCE(\r\n    trips.concessionaire_name,\r\n    routes.concessionaire_name\r\n  ) IN (${concessionaire:sqlstring})\r\n  AND routes.route_name IN (${route:sqlstring})\r\nGROUP BY\r\n  route_name\r\nORDER BY\r\n  regexp_replace(route_name, '\\d', '', 'g'),\r\n  NULLIF(\r\n    regexp_replace(route_name, '\\D', '', 'g'),\r\n    ''\r\n  ) :: INT;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          },
+          "table": "dim_trips"
+        }
+      ],
+      "title": "Echtzeitzuordnung nach Linie (Überwachte Fahrten)",
+      "type": "barchart"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": [
+    "timeline",
+    "realtime",
+    "dataquality"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "bodo",
+          "value": "bodo"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "timeline-postgres"
+        },
+        "definition": "SELECT DISTINCT instance_id FROM fact_stop_times;",
+        "description": "",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Instanz",
+        "multi": false,
+        "name": "instance",
+        "options": [],
+        "query": "SELECT DISTINCT instance_id FROM fact_stop_times;",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "timeline-postgres"
+        },
+        "definition": "SELECT DISTINCT concessionaire_name FROM dim_trips WHERE concessionaire_name IS NOT NULL AND instance_id = ${instance:sqlstring}\nUNION\nSELECT DISTINCT concessionaire_name FROM dim_routes WHERE concessionaire_name IS NOT NULL AND instance_id = ${instance:sqlstring}",
+        "description": "",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Konzessionär",
+        "multi": true,
+        "name": "concessionaire",
+        "options": [],
+        "query": "SELECT DISTINCT concessionaire_name FROM dim_trips WHERE concessionaire_name IS NOT NULL AND instance_id = ${instance:sqlstring}\nUNION\nSELECT DISTINCT concessionaire_name FROM dim_routes WHERE concessionaire_name IS NOT NULL AND instance_id = ${instance:sqlstring}",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "timeline-postgres"
+        },
+        "definition": "SELECT DISTINCT route_name FROM dim_routes WHERE instance_id = ${instance:sqlstring} AND concessionaire_name IN (${concessionaire:sqlstring})",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Linie",
+        "multi": true,
+        "name": "route",
+        "options": [],
+        "query": "SELECT DISTINCT route_name FROM dim_routes WHERE instance_id = ${instance:sqlstring} AND concessionaire_name IN (${concessionaire:sqlstring})",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 3,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now/d",
+    "to": "now/d"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Datenqualität",
+  "uid": "afptr7jyn4npcd",
+  "version": 11,
+  "weekStart": ""
+}

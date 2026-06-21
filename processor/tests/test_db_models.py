@@ -66,6 +66,7 @@ class DatabaseModelsTests(unittest.TestCase):
             "nom_end_stop_id": ("TEXT", False),
             "nom_total_distance": ("DOUBLE PRECISION", False),
             "act_total_distance": ("DOUBLE PRECISION", True),
+            "realtime_assignment_method": ("TEXT", True),
             "schedule_relationship": ("TEXT", False),
         }
 

@@ -124,15 +124,24 @@ class TimelineRepositoryInterface(Protocol):
         self,
         instance_id: str,
         operation_day_date: date,
-        route_id: str,
-        scheduled_start_time: datetime,
-    ) -> str | None:
-        """Find the nominal trip_id for a given route and scheduled start time on an operation day.
+        route_id: str | None,
+        scheduled_start_time: datetime | None,
+        scheduled_end_time: datetime | None,
+        scheduled_start_stop_id: str | None,
+        scheduled_end_stop_id: str | None
+    ) -> list[str] | None:
+        """Find nominal trip IDs for an operation day using optional matching properties.
 
         Used as a secondary lookup when the primary trip_id from the realtime feed does not
-        match any nominal trip row.  The lookup is based on route_id and exact scheduled
-        start datetime in processor timezone. Returns the trip_id when exactly one match
-        is found; returns None when no match or when the result is ambiguous.
+        match any nominal trip row. Filters are applied only for non-None parameters:
+
+        - ``route_id``: exact match.
+        - ``scheduled_start_time``: range match within +/- 60 seconds.
+        - ``scheduled_end_time``: range match within +/- 60 seconds.
+        - ``scheduled_start_stop_id``: prefix match using ``LIKE '<value>%'``.
+        - ``scheduled_end_stop_id``: prefix match using ``LIKE '<value>%'``.
+
+        Returns a list of matching trip IDs, or None if no matches are found.
         """
 
     async def get_export_dataset(

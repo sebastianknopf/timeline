@@ -105,6 +105,7 @@ class TripDimension(Base):
     nom_end_stop_id: Mapped[str] = mapped_column(Text, nullable=False)
     nom_total_distance: Mapped[float] = mapped_column(Double, nullable=False)
     act_total_distance: Mapped[float | None] = mapped_column(Double, nullable=True)
+    realtime_assignment_method: Mapped[str | None] = mapped_column(Text, nullable=True)
     schedule_relationship: Mapped[str] = mapped_column(
         Text,
         nullable=False,

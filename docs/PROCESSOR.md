@@ -104,6 +104,23 @@ Its responsibilies are:
 - match the trip against the route ID, the operation day date and the scheduled start time
 - return the matched trip ID
 
+The matching service offers an API which can be served by different sets of parameters. Only those parameters which are handed to the matching service are considered during matching. Too few served parameters may lead to an unambiguous match of multiple trips. Following parameters are available:
+
+- `instance_id`: (mandatory) the instance ID the realtime pipeline belongs to
+- `operation_day_date`: (mandatory) the operation day date the realtime trip belongs to
+- `route_id`: (optional) the route ID for the nominal trip lookup
+- `scheduled_start_time`: (optional) the start time (first departure time) for the nominal trip lookup
+- `scheduled_end_time`: (optional) the end time (last arrival time) for the nominal trip lookup
+- `scheduled_start_stop_id`: (optional) the first stop ID for the nominal trip lookup
+- `scheduled_end_stop_id`: (optional) the last stop ID for the nominal trip lookup 
+
+Typical matching sets should contain at least (`route_id`, `scheduled_start_time`, `scheduled_start_stop_id`) or (`scheduled_start_time`, `scheduled_start_stop_id`, `scheduled_end_time`, `scheduled_end_stop_id`) to find a proper match.
+
+During the matching process the parameters are expanded or relaxed a little in order to compensate smaller data quality issues:
+
+- `scheduled_start_time` and `scheduled_end_time` are expanded with a time frame of 60s around
+- If `scheduled_start_stop_id` or `scheduled_end_stop_id` use global IDs, the IDs are reduced to level 3 (station) 
+
 ### Central Load Service
 
 The central load service owns all load-phase responsibilities:

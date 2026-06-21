@@ -90,9 +90,12 @@ class RecordingRepository:
         self,
         instance_id: str,
         operation_day_date: date,
-        route_id: str,
-        scheduled_start_time: datetime,
-    ) -> str | None:
+        route_id: str | None,
+        scheduled_start_time: datetime | None,
+        scheduled_end_time: datetime | None,
+        scheduled_start_stop_id: str | None,
+        scheduled_end_stop_id: str | None,
+    ) -> list[str] | None:
         return None
 
 
