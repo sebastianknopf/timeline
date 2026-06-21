@@ -114,6 +114,8 @@ The matching service offers an API which can be served by different sets of para
 - `scheduled_start_stop_id`: (optional) the first stop ID for the nominal trip lookup
 - `scheduled_end_stop_id`: (optional) the last stop ID for the nominal trip lookup 
 
+Typical matching sets should contain at least (`route_id`, `scheduled_start_time`, `scheduled_start_stop_id`) or (`scheduled_start_time`, `scheduled_start_stop_id`, `scheduled_end_time`, `scheduled_end_stop_id`) to find a proper match.
+
 During the matching process the parameters are expanded or relaxed a little in order to compensate smaller data quality issues:
 
 - `scheduled_start_time` and `scheduled_end_time` are expanded with a time frame of 60s around
