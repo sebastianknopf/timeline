@@ -70,3 +70,34 @@ class StopTimeRecord:
     stop_sequence: int = 0
     arrival_delay_seconds: int | None = None
     departure_delay_seconds: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class IssueTypeRecord:
+    issue_type_id: int
+    code: str
+
+
+@dataclass(frozen=True, slots=True)
+class RequestRecord:
+    request_id: str
+    pipeline_id: str
+    timestamp: datetime
+    num_entities: int
+    age_seconds: int
+    status_code: int = 200
+
+
+@dataclass(frozen=True, slots=True)
+class QualityIssueRecord:
+    issue_id: str
+    pipeline_id: str
+    timestamp: datetime
+    entity_id: str
+    issue_type_id: int
+    concessionaire_id: str | None = None
+    concessionaire_name: str | None = None
+    operator_id: str | None = None
+    operator_name: str | None = None
+    assessment_value: str | None = None
+    num_affected_values: int = 1

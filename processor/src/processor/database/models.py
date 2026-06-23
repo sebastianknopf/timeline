@@ -186,3 +186,74 @@ class StopTimeFact(Base):
         nullable=False,
         server_default=text("'UNKNOWN'"),
     )
+
+
+class IssueTypeDimension(Base):
+    __tablename__: ClassVar[str] = "dim_issue_types"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="pk_dim_issue_types"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, nullable=False)
+    code: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class RequestFact(Base):
+    __tablename__: ClassVar[str] = "fact_requests"
+    __table_args__ = (
+        PrimaryKeyConstraint("instance_id", "request_id", name="pk_fact_requests"),
+        Index(
+            "ix_fact_requests_instance_id_pipeline_id_timestamp",
+            "instance_id",
+            "pipeline_id",
+            "timestamp",
+        ),
+    )
+
+    instance_id: Mapped[str] = mapped_column(Text, nullable=False)
+    request_id: Mapped[str] = mapped_column(Text, nullable=False)
+    pipeline_id: Mapped[str] = mapped_column(Text, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    num_entities: Mapped[int] = mapped_column(Integer, nullable=False)
+    age_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    status_code: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("200"))
+
+
+class QualityIssueFact(Base):
+    __tablename__: ClassVar[str] = "fact_quality_issues"
+    __table_args__ = (
+        PrimaryKeyConstraint("instance_id", "issue_id", name="pk_fact_quality_issues"),
+        ForeignKeyConstraint(
+            ["issue_type_id"],
+            ["dim_issue_types.id"],
+            name="fk_fact_quality_issues_issue_type",
+            ondelete="CASCADE",
+        ),
+        Index(
+            "ix_fact_quality_issues_instance_id_pipeline_id_timestamp_issue_type_id",
+            "instance_id",
+            "pipeline_id",
+            "timestamp",
+            "issue_type_id",
+        ),
+        Index(
+            "ix_fact_quality_issues_instance_id_pipeline_id_concessionaire_id_operator_id",
+            "instance_id",
+            "pipeline_id",
+            "concessionaire_id",
+            "operator_id",
+        ),
+    )
+
+    instance_id: Mapped[str] = mapped_column(Text, nullable=False)
+    issue_id: Mapped[str] = mapped_column(Text, nullable=False)
+    pipeline_id: Mapped[str] = mapped_column(Text, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    entity_id: Mapped[str] = mapped_column(Text, nullable=False)
+    issue_type_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    concessionaire_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    concessionaire_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    operator_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    operator_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assessment_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    num_affected_values: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
