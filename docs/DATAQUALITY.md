@@ -50,4 +50,8 @@ Also be aware of the interpretation of the issue types. The interpretation is on
 
 ## Internal Architecture
 
-tbd
+### Implementation
+
+Notes:
+
+- the module `src/processor/common/quality_issues.py` contains an enum with the readable issue codes and their internal IDs.
