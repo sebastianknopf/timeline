@@ -72,6 +72,10 @@ Persistent data is stored in named volumes:
 
 The processor service architecture is documented separately in [docs/PROCESSOR.md](PROCESSOR.md).
 
+## Data Quality Metrics
+
+The data quality metrics are documented in [docs/DATAQUALITY.md](DATAQUALITY.md).
+
 ## Configuration Documentation
 
 The runtime configuration model is documented in [docs/CONFIGURATION.md](CONFIGURATION.md).

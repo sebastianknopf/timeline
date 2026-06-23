@@ -9,10 +9,10 @@ For database access scripts, see [docs/SCRIPTS.md](SCRIPTS.md).
 
 The database uses one central fact table and three dimensions:
 
-- fact table: `fact_stop_times`
-- dimensions: `dim_stops`, `dim_routes`, `dim_trips`
+- fact table: `fact_stop_times`, `fact_requests`, `fact_quality_issues`
+- dimensions: `dim_stops`, `dim_routes`, `dim_trips`, `dim_issue_types`
 
-`instance_id` is mandatory in all tables and is always part of relational keys. This enforces tenant-like isolation so data from different instances remains separated.
+`instance_id` is mandatory in most tables and is always part of relational keys. This enforces tenant-like isolation so data from different instances remains separated. Only system dimension tables like `dim_issue_types` are build with a single primary key without `instance_id`.
 
 ## Type Rules
 
@@ -20,35 +20,10 @@ These type rules are applied consistently:
 
 - date fields: `date`
 - time fields: `timestamptz`
-- distance fields: `double precision`
+- distance fields and coordinates: `double precision`
 - sequence fields: `integer`
+- counting fields: `integer`
 - all remaining fields: `text`
-
-Stop coordinates are also stored as `double precision`:
-
-- `stop_lat`
-- `stop_lon`
-
-Applied date and time fields:
-
-- date: `operation_day_date`
-- timestamps:
-  - `nom_arrival_time`
-  - `nom_departure_time`
-  - `act_arrival_time`
-  - `act_departure_time`
-  - `nom_start_time`
-  - `nom_end_time`
-  - `act_start_time`
-  - `act_end_time`
-
-Distance and coordinate fields:
-
-- `distance_from_start`
-- `nom_total_distance`
-- `act_total_distance`
-- `stop_lat`
-- `stop_lon`
 
 ## Table Definitions
 
@@ -103,6 +78,7 @@ Primary key:
 | `nom_total_distance` | `double precision` | no | Planned total trip distance |
 | `act_total_distance` | `double precision` | yes | Actual total trip distance |
 | `schedule_relationship` | `text` | no | Default: `UNKNOWN` |
+| `realtime_assignment_method` | `text` | yes | Indicates the internal realtime assignment method. Available values are `DIRECT` and `MATCHING`. Default: `NULL` |
 
 Primary key:
 
@@ -143,23 +119,61 @@ Design note:
 
 - `stop_sequence` is the authoritative identifier for a stop position within one trip/day. Using `stop_sequence` in the primary key — rather than `distance_from_start` — ensures that upserts correctly update an existing row when distances change (for example when a new GTFS static feed provides or corrects `shape_dist_traveled` values). `distance_from_start` remains a regular column so its value can be updated on every pipeline run.
 
-## Model Relationships
+### dim_issue_types
 
-Cardinality:
+| Column | Type | Nullable | Notes |
+| --- | --- | --- | --- |
+| `id` | `integer` | no | Inssue type ID |
+| `code` | `text` | no | Coded name for the quality issue |
 
-- one `dim_stops` row can be referenced by many `fact_stop_times` rows
-- one `dim_trips` row can be referenced by many `fact_stop_times` rows
-- one `dim_stops` row can also be referenced by many `dim_trips` rows through `nom_start_stop_id` and `nom_end_stop_id`
-- one `dim_routes` row can be referenced by many `dim_trips` rows through `route_id`
+Primary key:
 
-All foreign key relationships enforce referential integrity with `ON DELETE RESTRICT`. Deleting a parent row that is still referenced by a child row will fail immediately.
+- (`id`)
 
-Logical model flow:
+Important note: This table is a system-only table and must not be changed by any pipeline! The intention behind the table is to keep the indexes smaller and normalize the data quality issue model. This table is only filled by corresponding database migrations. 
 
-1. `dim_stops` contains normalized stop metadata per instance.
-2. `dim_routes` contains normalized route metadata per instance, including concessionaire and operator information.
-3. `dim_trips` contains trip-level aggregates per instance and operation day, linked to a route in `dim_routes`.
-4. `fact_stop_times` contains stop-time facts linked to both `dim_stops` and `dim_trips`.
+See more about the available issue codes in [docs/DATAQUALITY.md](docs/DATAQUALITY.md).
+
+### fact_requests
+
+| Column | Type | Nullable | Notes |
+| --- | --- | --- | --- |
+| `instance_id` | `text` | no | Instance scope key |
+| `request_id` | `text` | no | Hash over `pipeline_id` and `timestamp` to minimize the size of indexes |
+| `pipeline_id ` | `text` | no | The ID of the pipeline which triggered this pipeline exection |
+| `timestamp ` | `timestamptz` | no | Timestamp when the pipeline exection was triggered |
+| `num_entities` | `integer` | no | Number of generally processable entities in the payload |
+| `age_seconds` | `integer` | no | Age of the payload in seconds. Extraction depends on the pipeline implementation |
+| `status_code ` | `integer` | no | HTTP-like status code for the pipeline execution. Default: 200 |
+
+Primary key:
+
+- (`instance_id`, `request_id`)
+
+### fact_quality_issues
+
+| Column | Type | Nullable | Notes |
+| --- | --- | --- | --- |
+| `instance_id` | `text` | no | Instance scope key |
+| `issue_id` | `text` | no | Hash over `pipeline_id`, `operation_day_date`, `entity_id` and `code`  to minimize the size of indexes |
+| `pipeline_id ` | `text` | no | The ID of the pipeline which triggered this pipeline exection |
+| `timestamp ` | `timestamptz` | no | Timestamp when the pipeline exection was triggered |
+| `entity_id ` | `text` | no | Exactly NOT `trip_id` because `trip_id` describes a particular trip in nominal data. Here, we're not matched yet and so we only can talk about the `entity_id` |
+| `issue_type_id ` | `integer` | no | Reference to the issue type |
+| `concessionaire_id` | `text` | yes | Concessionaire identifier |
+| `concessionaire_name` | `text` | yes | Concessionaire name |
+| `operator_id` | `text` | yes | Operator identifier |
+| `operator_name` | `text` | yes | Operator name |
+| `assessment_value` | `text` | yes | The detected value which leaded to the quality issue |
+| `num_affected_values` | `integer` | no | Number of affected values in one entity. Default: 1 |
+
+Primary key:
+
+- (`instance_id`, `issue_id`)
+
+Foreign keys:
+
+- (`issue_type_id`) references `dim_issue_types` (`id`) — ON DELETE CASCADE
 
 ## Index Strategy
 
@@ -171,6 +185,9 @@ The following indexes should be created to keep joins and instance-scoped filter
 - `dim_routes`: pk (`instance_id`, `route_id`)
 - `dim_trips`: pk (`instance_id`, `operation_day_date`, `trip_id`)
 - `fact_stop_times`: pk (`instance_id`, `operation_day_date`, `trip_id`, `stop_id`, `stop_sequence`)
+- `dim_issue_types`: pk (`id`)
+- `fact_requests`: pk (`instance_id`, `request_id`)
+- `fact_quality_issues`: (`instance_id`, `issue_id`)
 
 ### Additional recommended indexes
 
@@ -197,6 +214,15 @@ The following indexes should be created to keep joins and instance-scoped filter
 - idx for actual-time range queries: (`instance_id`, `act_arrival_time`)
 - idx for actual-departure range queries: (`instance_id`, `act_departure_time`)
 
+`fact_requests`:
+
+- idx for showing data input and status per instance/pipeline/timerange: (`instance_id`, `pipeline_id`, `timestamp`)
+
+`fact_quality_issues`:
+
+- idx for pipeline-/issue-centric lookup per timestamp: (`instance_id`, `pipeline_id`, `timestamp`, `issue_type_id`)
+- idx for operator-/concessionaire-centric lookup per timestamp: (`instance_id`, `pipeline_id`, `concessionaire_id`, `operator_id`)
+
 Indexing principle:
 
 - Keep `instance_id` as the leading index column whenever possible to guarantee tenant-pruned execution paths.
@@ -207,7 +233,7 @@ The processor intentionally uses two different `models.py` modules with differen
 
 Database ORM models (`processor/src/processor/database/models.py`):
 
-- SQLAlchemy declarative classes for persisted tables (`dim_stops`, `dim_routes`, `dim_trips`, `fact_stop_times`)
+- SQLAlchemy declarative classes for persisted tables (`dim_stops`, `dim_routes`, `dim_trips`, `fact_stop_times`, `dim_issue_types`, `fact_requests`, `fact_quality_issues`)
 - include table metadata, primary keys, foreign keys, indexes, and database column types
 - used by Alembic metadata wiring and concrete repository persistence logic
 
@@ -217,5 +243,11 @@ Loading models (`processor/src/processor/loading/models.py`):
 - represent normalized runtime payloads independent from SQLAlchemy session state
 - keep orchestration and matching logic testable without direct ORM dependencies
 
-These two modules are not duplicates.
+Export models (`processor/src/processor/exports/models.py`):
+
+- dataclass records used at service boundaries for the export interfaces
+- represent normalized runtime payloads independent from SQLAlchemy session state
+- keep orchestration and matching logic testable without direct ORM dependencies
+
+These modules are not duplicates.
 They represent different architectural layers (persistence schema vs. runtime transfer models) and are both required.
