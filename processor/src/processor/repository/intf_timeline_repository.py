@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Protocol
 from ..exports.models import ExportDataSet
 
 if TYPE_CHECKING:
-    from ..loading.models import QualityIssueRecord, RouteRecord, StopRecord, StopTimeRecord, TripRecord
+    from ..loading.models import RequestRecord, QualityIssueRecord, RouteRecord, StopRecord, StopTimeRecord, TripRecord
 
 
 class TimelineRepositoryInterface(Protocol):
