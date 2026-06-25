@@ -8,7 +8,7 @@ from croniter import croniter
 import structlog
 
 from .exports.intf_export_executor import ExportExecutorInterface
-from .intf_pipeline_executor import PipelineExecutorInterface
+from .pipelines.intf_pipeline_executor import PipelineExecutorInterface
 from .runtime_config import ExportConfig, InstanceConfig, PipelineConfig, ProcessorConfig
 
 LOGGER = structlog.get_logger(__name__)

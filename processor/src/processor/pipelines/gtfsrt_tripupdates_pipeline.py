@@ -15,6 +15,7 @@ from ..loading.loading_service import LoadingService
 from ..loading.models import StopTimeRecord, TripRecord
 from ..mapping.intf_mapping_service import MappingServiceInterface
 from ..runtime_config import AuthenticationConfig, FilterEntryConfig, InstanceConfig, PipelineConfig
+from .base_pipeline import RealtimePipelineBase
 
 LOGGER = structlog.get_logger(__name__)
 
@@ -35,13 +36,15 @@ class _StopUpdate:
     schedule_relationship: str
 
 
-class GtfsRtTripUpdatesPipeline:
+class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
     def __init__(
         self,
         loading_service: LoadingService,
         mapping_service: MappingServiceInterface,
         processor_timezone_name: str = "UTC",
     ) -> None:
+        super().__init__()
+
         self._loading_service = loading_service
         self._mapping_service = mapping_service
         self._processor_timezone_name = processor_timezone_name

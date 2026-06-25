@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import structlog
 
-from ..intf_pipeline_executor import PipelineExecutorInterface
+from .intf_pipeline_executor import PipelineExecutorInterface
 from ..mapping.intf_mapping_service import MappingServiceInterface
 from ..runtime_config import InstanceConfig, PipelineConfig
 from .gtfs_pipeline import GtfsNominalPipeline
