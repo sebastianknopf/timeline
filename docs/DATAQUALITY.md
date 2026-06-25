@@ -50,7 +50,31 @@ Also be aware of the interpretation of the issue types. The interpretation is on
 
 ## Internal Architecture
 
-### Implementation
+### QualityReportService
+The `QualityReportService` offers all methods needed for logging the request basic measures and the quality issues. The service is meant to be used **on pipeline-run level** meaning that each instance is used in one pipeline run. Additionally, the service can be used by the loading service in order to report quality issues which are detected at loading / matching level at all.
+
+It holds exactly one `RequestRecord` object (which is meant to cover the basic requests metrics) and many `QualityIssueRecords` for all quality issues detected during a pipeline run.
+
+### Implementation on Pipeline Level
+
+Each pipeline, either nominal or realtime should inherit from the corresponding base class `NominalPipeline` and `RealtimePipeline`. Those abstract base classes offer methods to support data quality reporting in an object-oriented way. 
+
+Please note that each pipeline implementation needs to call `super().__init__()` in her constructor in order to initialize the super class correctly with the `QualityReportService`. The structure for a pipeline's `execute` method should look as follows:
+
+```python
+async def execute(...) -> None:
+
+    # do some basic setup stuff here
+
+    try:
+
+        # to the pipeline stuff here and catch exceptions
+
+    finally:
+
+        # submit all collected quality reports here
+        await self.submit_quality_report(instance=instance)
+```
 
 Notes:
 
