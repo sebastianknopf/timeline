@@ -28,15 +28,15 @@ class QualityReportServiceTests(unittest.TestCase):
     def test_add_request_populates_instance_id_and_request_fields(self) -> None:
         timestamp = datetime(2026, 6, 23, 12, 0, tzinfo=timezone.utc)
 
-        self.service.add_request(
+        self.service.report_request(
             timestamp=timestamp,
             num_entities=3,
             age_seconds=42,
             status_code=200,
         )
 
-        self.assertEqual(1, len(self.service._requests))
-        request = self.service._requests[0]
+        request = self.service.get_request()
+        self.assertIsNotNone(request)
         self.assertEqual("demo", request.instance_id)
         self.assertEqual(self.pipeline.id, request.pipeline_id)
         self.assertEqual(timestamp, request.timestamp)
@@ -48,7 +48,7 @@ class QualityReportServiceTests(unittest.TestCase):
     def test_add_quality_issue_populates_instance_id_and_issue_fields(self) -> None:
         timestamp = datetime(2026, 6, 23, 12, 5, tzinfo=timezone.utc)
 
-        self.service.add_quality_issue(
+        self.service.report_quality_issue(
             timestamp=timestamp,
             entity_id="trip-1",
             issue_type_id=QualityIssue.OperatorIdIsNull,
@@ -60,8 +60,9 @@ class QualityReportServiceTests(unittest.TestCase):
             num_affected_values=2,
         )
 
-        self.assertEqual(1, len(self.service._quality_issues))
-        issue = self.service._quality_issues[0]
+        issues = self.service.get_quality_issues()
+        self.assertEqual(1, len(issues))
+        issue = issues[0]
         self.assertEqual("demo", issue.instance_id)
         self.assertEqual(self.pipeline.id, issue.pipeline_id)
         self.assertEqual(timestamp, issue.timestamp)
@@ -76,21 +77,22 @@ class QualityReportServiceTests(unittest.TestCase):
     def test_add_quality_issue_merges_duplicate_issue_ids(self) -> None:
         timestamp = datetime(2026, 6, 23, 12, 10, tzinfo=timezone.utc)
 
-        self.service.add_quality_issue(
+        self.service.report_quality_issue(
             timestamp=timestamp,
             entity_id="trip-2",
             issue_type_id=QualityIssue.RouteIdIsNull,
             assessment_value="LOW",
         )
-        self.service.add_quality_issue(
+        self.service.report_quality_issue(
             timestamp=timestamp,
             entity_id="trip-2",
             issue_type_id=QualityIssue.RouteIdIsNull,
             assessment_value="MEDIUM",
         )
 
-        self.assertEqual(1, len(self.service._quality_issues))
-        issue = self.service._quality_issues[0]
+        issues = self.service.get_quality_issues()
+        self.assertEqual(1, len(issues))
+        issue = issues[0]
         self.assertEqual(2, issue.num_affected_values)
         self.assertEqual("LOW, MEDIUM", issue.assessment_value)
 

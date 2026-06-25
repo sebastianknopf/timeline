@@ -58,130 +58,136 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
 
         pipeline_timezone: ZoneInfo = _safe_zoneinfo(pipeline.timezone)
         
-        payload = self._read_endpoint_payload(endpoint=pipeline.endpoint, authentication=pipeline.authentication)
-        feed_message = self._decode_feed_message(payload)
+        try:
+            payload = self._read_endpoint_payload(endpoint=pipeline.endpoint, authentication=pipeline.authentication)
+            feed_message = self._decode_feed_message(payload)
 
-        now_utc = datetime.now(UTC)
-        now_processor_tz = now_utc.astimezone(self._processor_timezone)
-        feed_timestamp_utc = _timestamp_to_utc(feed_message.header.timestamp) if feed_message.header.timestamp else None
+            now_utc = datetime.now(UTC)
+            now_processor_tz = now_utc.astimezone(self._processor_timezone)
+            feed_timestamp_utc = _timestamp_to_utc(feed_message.header.timestamp) if feed_message.header.timestamp else None
 
-        entity_count = 0
-        trip_update_count = 0
-        skipped_entities = 0
-        loaded_trip_count = 0
-        loaded_stop_time_count = 0
-        route_filter = pipeline.filter.routes if pipeline.filter is not None else ()
+            entity_count = 0
+            trip_update_count = 0
+            skipped_entities = 0
+            loaded_trip_count = 0
+            loaded_stop_time_count = 0
+            route_filter = pipeline.filter.routes if pipeline.filter is not None else ()
 
-        for entity in feed_message.entity:
-            entity_count += 1
-            if not entity.HasField("trip_update"):
-                skipped_entities += 1
-                continue
-
-            trip_update = entity.trip_update
-            trip_descriptor = trip_update.trip
-            trip_id = (trip_descriptor.trip_id or "").strip()
-            if not trip_id:
-                skipped_entities += 1
-                continue
-
-            trip_update_count += 1
-
-            operation_day = _parse_service_date(
-                raw_value=(trip_descriptor.start_date or "").strip(),
-                fallback_date=now_processor_tz.date(),
-            )
-
-            route_id = (trip_descriptor.route_id or "").strip() or "UNKNOWN-ROUTE"
-            if route_filter:
-                if not trip_descriptor.route_id or not _route_matches_filter(route_id, route_filter):
+            for entity in feed_message.entity:
+                entity_count += 1
+                if not entity.HasField("trip_update"):
                     skipped_entities += 1
+                    continue
+
+                trip_update = entity.trip_update
+                trip_descriptor = trip_update.trip
+                trip_id = (trip_descriptor.trip_id or "").strip()
+                if not trip_id:
+                    skipped_entities += 1
+                    continue
+
+                trip_update_count += 1
+
+                operation_day = _parse_service_date(
+                    raw_value=(trip_descriptor.start_date or "").strip(),
+                    fallback_date=now_processor_tz.date(),
+                )
+
+                route_id = (trip_descriptor.route_id or "").strip() or "UNKNOWN-ROUTE"
+                if route_filter:
+                    if not trip_descriptor.route_id or not _route_matches_filter(route_id, route_filter):
+                        skipped_entities += 1
+                        LOGGER.debug(
+                            "realtime_trip_discarded_by_route_filter",
+                            instance_id=instance.id,
+                            pipeline_id=pipeline.id,
+                            trip_id=trip_id,
+                            route_id=route_id,
+                        )
+                        continue
+
+                scheduled_start_time: datetime | None = _parse_gtfs_time(
+                    raw_value=(trip_descriptor.start_time or "").strip(),
+                    operation_day=operation_day,
+                    source_timezone=pipeline_timezone,
+                    target_timezone=self._processor_timezone
+                )
+
+                trip_schedule_relationship = _enum_name(
+                    enum_descriptor=gtfs_realtime_pb2.TripDescriptor.ScheduleRelationship,
+                    value=trip_descriptor.schedule_relationship,
+                    fallback="UNKNOWN",
+                )
+
+                if trip_schedule_relationship == "ADDED":
                     LOGGER.debug(
-                        "realtime_trip_discarded_by_route_filter",
+                        "realtime_trip_discarded_added_schedule_relationship",
                         instance_id=instance.id,
                         pipeline_id=pipeline.id,
                         trip_id=trip_id,
                         route_id=route_id,
+                        operation_day_date=str(operation_day),
                     )
+                    skipped_entities += 1
                     continue
 
-            scheduled_start_time: datetime | None = _parse_gtfs_time(
-                raw_value=(trip_descriptor.start_time or "").strip(),
-                operation_day=operation_day,
-                source_timezone=pipeline_timezone,
-                target_timezone=self._processor_timezone
-            )
+                stop_updates = self._extract_stop_updates(
+                    updates=trip_update.stop_time_update,
+                    default_schedule_relationship=trip_schedule_relationship,
+                    now_utc=now_utc,
+                    trip_timestamp_utc=_timestamp_to_utc(trip_update.timestamp) if trip_update.timestamp else None,
+                    feed_timestamp_utc=feed_timestamp_utc,
+                )
+                
+                if not stop_updates:
+                    continue
 
-            trip_schedule_relationship = _enum_name(
-                enum_descriptor=gtfs_realtime_pb2.TripDescriptor.ScheduleRelationship,
-                value=trip_descriptor.schedule_relationship,
-                fallback="UNKNOWN",
-            )
-
-            if trip_schedule_relationship == "ADDED":
-                LOGGER.debug(
-                    "realtime_trip_discarded_added_schedule_relationship",
-                    instance_id=instance.id,
-                    pipeline_id=pipeline.id,
+                stop_time_records = self._build_stop_time_records(
+                    operation_day=operation_day,
+                    trip_id=trip_id,
+                    stop_updates=stop_updates,
+                    placeholder_nominal_time=now_processor_tz,
+                )
+                trip_record = self._build_trip_record(
+                    operation_day=operation_day,
                     trip_id=trip_id,
                     route_id=route_id,
-                    operation_day_date=str(operation_day),
+                    schedule_relationship=trip_schedule_relationship,
+                    scheduled_start_time=scheduled_start_time,
                 )
-                skipped_entities += 1
-                continue
 
-            stop_updates = self._extract_stop_updates(
-                updates=trip_update.stop_time_update,
-                default_schedule_relationship=trip_schedule_relationship,
-                now_utc=now_utc,
-                trip_timestamp_utc=_timestamp_to_utc(trip_update.timestamp) if trip_update.timestamp else None,
-                feed_timestamp_utc=feed_timestamp_utc,
-            )
-            
-            if not stop_updates:
-                continue
+                mapped_trip, mapped_stop_times = await self._mapping_service.map_records_for_loading(
+                    instance_id=instance.id,
+                    pipeline_id=pipeline.id,
+                    trip=trip_record,
+                    stop_times=stop_time_records,
+                )
 
-            stop_time_records = self._build_stop_time_records(
-                operation_day=operation_day,
-                trip_id=trip_id,
-                stop_updates=stop_updates,
-                placeholder_nominal_time=now_processor_tz,
-            )
-            trip_record = self._build_trip_record(
-                operation_day=operation_day,
-                trip_id=trip_id,
-                route_id=route_id,
-                schedule_relationship=trip_schedule_relationship,
-                scheduled_start_time=scheduled_start_time,
-            )
+                await self._loading_service.load_realtime_trip_and_stop_times(
+                    instance_id=instance.id,
+                    trip=mapped_trip,
+                    stop_times=mapped_stop_times,
+                )
 
-            mapped_trip, mapped_stop_times = await self._mapping_service.map_records_for_loading(
+                loaded_trip_count += 1
+                loaded_stop_time_count += len(mapped_stop_times)
+
+            LOGGER.info(
+                "gtfs_realtime_tripupdates_pipeline_loaded",
                 instance_id=instance.id,
                 pipeline_id=pipeline.id,
-                trip=trip_record,
-                stop_times=stop_time_records,
+                processor_timezone=self._processor_timezone_name,
+                entity_count=entity_count,
+                trip_update_count=trip_update_count,
+                skipped_entity_count=skipped_entities,
+                loaded_trip_count=loaded_trip_count,
+                loaded_stop_time_count=loaded_stop_time_count,
             )
 
-            await self._loading_service.load_realtime_trip_and_stop_times(
-                instance_id=instance.id,
-                trip=mapped_trip,
-                stop_times=mapped_stop_times,
-            )
+        finally:
 
-            loaded_trip_count += 1
-            loaded_stop_time_count += len(mapped_stop_times)
-
-        LOGGER.info(
-            "gtfs_realtime_tripupdates_pipeline_loaded",
-            instance_id=instance.id,
-            pipeline_id=pipeline.id,
-            processor_timezone=self._processor_timezone_name,
-            entity_count=entity_count,
-            trip_update_count=trip_update_count,
-            skipped_entity_count=skipped_entities,
-            loaded_trip_count=loaded_trip_count,
-            loaded_stop_time_count=loaded_stop_time_count,
-        )
+            # submit data quality report independent of success or failure of the realtime processing
+            self.submit_quality_report()
 
     def _read_endpoint_payload(self, endpoint: str, authentication: AuthenticationConfig | None) -> bytes:
         request = Request(endpoint)

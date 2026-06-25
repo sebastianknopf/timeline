@@ -15,10 +15,10 @@ class QualityReportService:
         self._instance_config: InstanceConfig = instance_config
         self._pipeline_config: PipelineConfig = pipeline_config
         
-        self._requests: list[RequestRecord] = []
+        self._request: RequestRecord | None = None
         self._quality_issues: list[QualityIssueRecord] = []
 
-    def add_request(
+    def report_request(
             self, 
             timestamp: datetime,
             num_entities: int,
@@ -45,9 +45,9 @@ class QualityReportService:
             status_code=status_code
         )
 
-        self._requests.append(request)
+        self._request = request
 
-    def add_quality_issue(
+    def report_quality_issue(
             self,
             timestamp: datetime,
             entity_id: str,
@@ -105,6 +105,26 @@ class QualityReportService:
         else:
             self._quality_issues.append(quality_issue)
 
+    def get_request(self) -> RequestRecord | None:
+        """
+        Get the first request record in the quality report.
+        
+        Returns:
+            RequestRecord | None: The first request record, or None if no requests have been reported.
+        """
+
+        return self._request
+    
+    def get_quality_issues(self) -> list[QualityIssueRecord]:
+        """
+        Get all quality issue records in the quality report.
+        
+        Returns:
+            list[QualityIssueRecord]: A list of all quality issue records.
+        """
+
+        return self._quality_issues
+    
     def _compute_request_id(self, pipeline_id: str, timestamp: datetime) -> str:
         """
         Compute a unique record ID based on the pipeline ID and timestamp.
