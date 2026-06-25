@@ -22,6 +22,7 @@ class LoadingAndExportModelsTests(unittest.TestCase):
     def test_new_domain_records_have_monitoring_fields(self) -> None:
         issue_type = IssueTypeRecord(issue_type_id=1, code="OperatorIdIsNull")
         request = RequestRecord(
+            instance_id="demo",
             request_id="req-1",
             pipeline_id="pipeline-a",
             timestamp=datetime(2026, 6, 23, 12, 0, tzinfo=datetime.now().astimezone().tzinfo),
@@ -29,6 +30,7 @@ class LoadingAndExportModelsTests(unittest.TestCase):
             age_seconds=42,
         )
         quality_issue = QualityIssueRecord(
+            instance_id="demo",
             issue_id="issue-1",
             pipeline_id="pipeline-a",
             timestamp=datetime(2026, 6, 23, 12, 0, tzinfo=datetime.now().astimezone().tzinfo),

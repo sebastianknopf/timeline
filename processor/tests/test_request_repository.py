@@ -50,6 +50,7 @@ class LoadingServiceRequestTests(unittest.IsolatedAsyncioTestCase):
         repository = RecordingRepository()
         service = LoadingService(repository=repository)  # type: ignore[arg-type]
         request = RequestRecord(
+            instance_id="demo",
             request_id="req-1",
             pipeline_id="nominal-main",
             timestamp=datetime(2026, 5, 31, 8, 0, tzinfo=timezone.utc),
@@ -66,6 +67,7 @@ class LoadingServiceRequestTests(unittest.IsolatedAsyncioTestCase):
         session = _FakeSession()
         repository = SqlAlchemyTimelineRepository(session_factory=lambda: session)
         request = RequestRecord(
+            instance_id="demo",
             request_id="req-2",
             pipeline_id="nominal-main",
             timestamp=datetime(2026, 5, 31, 9, 0, tzinfo=timezone.utc),

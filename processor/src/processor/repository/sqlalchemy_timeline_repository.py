@@ -658,7 +658,7 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                 session.execute(
                     table.insert(),
                     [{
-                        "instance_id": instance_id,
+                        "instance_id": request.instance_id or instance_id,
                         "request_id": request.request_id,
                         "pipeline_id": request.pipeline_id,
                         "timestamp": request.timestamp,
@@ -683,7 +683,7 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                 for issues_chunk in _chunked_records(quality_issues, 5000):
                     rows = [
                         {
-                            "instance_id": instance_id,
+                            "instance_id": issue.instance_id or instance_id,
                             "issue_id": issue.issue_id,
                             "pipeline_id": issue.pipeline_id,
                             "timestamp": issue.timestamp,

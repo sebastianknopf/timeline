@@ -155,7 +155,7 @@ Primary key:
 | Column | Type | Nullable | Notes |
 | --- | --- | --- | --- |
 | `instance_id` | `text` | no | Instance scope key |
-| `issue_id` | `text` | no | Hash over `pipeline_id`, `operation_day_date`, `entity_id` and `code`  to minimize the size of indexes |
+| `issue_id` | `text` | no | Hash over `pipeline_id`, `timestamp`, `entity_id` and `issue_type_id`  to minimize the size of indexes |
 | `pipeline_id ` | `text` | no | The ID of the pipeline which triggered this pipeline exection |
 | `timestamp ` | `timestamptz` | no | Timestamp when the pipeline exection was triggered |
 | `entity_id ` | `text` | no | Exactly NOT `trip_id` because `trip_id` describes a particular trip in nominal data. Here, we're not matched yet and so we only can talk about the `entity_id` |

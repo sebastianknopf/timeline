@@ -50,6 +50,7 @@ class LoadingServiceQualityIssueTests(unittest.IsolatedAsyncioTestCase):
         repository = RecordingRepository()
         service = LoadingService(repository=repository)  # type: ignore[arg-type]
         issue = QualityIssueRecord(
+            instance_id="demo",
             issue_id="issue-1",
             pipeline_id="gtfsrt-tripupdates",
             timestamp=datetime(2026, 5, 31, 8, 0, tzinfo=timezone.utc),
@@ -71,6 +72,7 @@ class LoadingServiceQualityIssueTests(unittest.IsolatedAsyncioTestCase):
         session = _FakeSession()
         repository = SqlAlchemyTimelineRepository(session_factory=lambda: session)
         issue = QualityIssueRecord(
+            instance_id="demo",
             issue_id="issue-2",
             pipeline_id="gtfsrt-tripupdates",
             timestamp=datetime(2026, 5, 31, 9, 0, tzinfo=timezone.utc),

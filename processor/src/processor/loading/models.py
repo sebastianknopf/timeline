@@ -80,6 +80,7 @@ class IssueTypeRecord:
 
 @dataclass(frozen=True, slots=True)
 class RequestRecord:
+    instance_id: str
     request_id: str
     pipeline_id: str
     timestamp: datetime
@@ -90,6 +91,7 @@ class RequestRecord:
 
 @dataclass(frozen=True, slots=True)
 class QualityIssueRecord:
+    instance_id: str
     issue_id: str
     pipeline_id: str
     timestamp: datetime
