@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from ..exports.models import ExportDataSet
-from ..loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
+
+if TYPE_CHECKING:
+    from ..loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
 
 
 class TimelineRepositoryInterface(Protocol):
@@ -151,8 +153,7 @@ class TimelineRepositoryInterface(Protocol):
         to_date: date,
     ) -> ExportDataSet:
         """Fetch timeline data for the given instance and half-open date interval [from_date, to_date).
-
-        Queries fact_stop_times for the date range, then collects the minimum consistent set of
-        referenced dim_trips, dim_stops, and dim_routes rows.  The instance_id column is not
+        
+        The instance_id column is not
         included in the returned row objects.
         """

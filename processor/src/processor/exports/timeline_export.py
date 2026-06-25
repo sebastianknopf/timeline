@@ -10,9 +10,9 @@ from pathlib import Path
 
 import structlog
 
+from ..repository import TimelineRepositoryInterface
 from ..runtime_config import ExportConfig, InstanceConfig
 from .base_export import ExportBase
-from .intf_export_repository import ExportRepositoryInterface
 from .models import (
     ExportDataSet,
     ExportIssueTypeRow,
@@ -237,7 +237,7 @@ def _build_zip(dataset: ExportDataSet) -> bytes:
 class TimelineExport(ExportBase):
     """Produces a ZIP archive of the timeline database for a configurable operation day period."""
 
-    def __init__(self, repository: ExportRepositoryInterface) -> None:
+    def __init__(self, repository: TimelineRepositoryInterface) -> None:
         self._repository = repository
 
     async def execute(
