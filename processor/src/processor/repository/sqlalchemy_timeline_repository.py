@@ -28,7 +28,7 @@ from ..exports.models import (
     ExportStopTimeRow,
     ExportTripRow,
 )
-from ..loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
+from ..loading.models import QualityIssueRecord, RequestRecord, RouteRecord, StopRecord, StopTimeRecord, TripRecord
 from .intf_timeline_repository import TimelineRepositoryInterface
 
 
@@ -103,6 +103,20 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
         stop_times: list[StopTimeRecord],
     ) -> None:
         await asyncio.to_thread(self._upsert_realtime_stop_times_sync, instance_id, stop_times)
+
+    async def insert_request(
+        self,
+        instance_id: str,
+        request: RequestRecord,
+    ) -> None:
+        await asyncio.to_thread(self._insert_request_sync, instance_id, request)
+
+    async def insert_quality_issues(
+        self,
+        instance_id: str,
+        quality_issues: list[QualityIssueRecord],
+    ) -> None:
+        await asyncio.to_thread(self._insert_quality_issues_sync, instance_id, quality_issues)
 
     async def get_nominal_trip(
         self,
@@ -635,6 +649,56 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                         },
                     )
                     session.execute(upsert_stmt)
+
+    def _insert_request_sync(self, instance_id: str, request: RequestRecord) -> None:
+        table = RequestFact.__table__
+
+        with self._session_factory() as session:
+            with session.begin():
+                session.execute(
+                    table.insert(),
+                    [{
+                        "instance_id": instance_id,
+                        "request_id": request.request_id,
+                        "pipeline_id": request.pipeline_id,
+                        "timestamp": request.timestamp,
+                        "num_entities": request.num_entities,
+                        "age_seconds": request.age_seconds,
+                        "status_code": request.status_code,
+                    }],
+                )
+
+    def _insert_quality_issues_sync(
+        self,
+        instance_id: str,
+        quality_issues: list[QualityIssueRecord],
+    ) -> None:
+        if not quality_issues:
+            return
+
+        table = QualityIssueFact.__table__
+
+        with self._session_factory() as session:
+            with session.begin():
+                for issues_chunk in _chunked_records(quality_issues, 5000):
+                    rows = [
+                        {
+                            "instance_id": instance_id,
+                            "issue_id": issue.issue_id,
+                            "pipeline_id": issue.pipeline_id,
+                            "timestamp": issue.timestamp,
+                            "entity_id": issue.entity_id,
+                            "issue_type_id": issue.issue_type_id,
+                            "concessionaire_id": issue.concessionaire_id,
+                            "concessionaire_name": issue.concessionaire_name,
+                            "operator_id": issue.operator_id,
+                            "operator_name": issue.operator_name,
+                            "assessment_value": issue.assessment_value,
+                            "num_affected_values": issue.num_affected_values,
+                        }
+                        for issue in issues_chunk
+                    ]
+                    session.execute(table.insert(), rows)
 
     def _get_nominal_trip_sync(
         self,

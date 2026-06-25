@@ -7,7 +7,7 @@ import structlog
 
 from ..repository.intf_timeline_repository import TimelineRepositoryInterface
 from ..matching.matching_service import MatchingService
-from .models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
+from .models import QualityIssueRecord, RequestRecord, RouteRecord, StopRecord, StopTimeRecord, TripRecord
 
 LOGGER = structlog.get_logger(__name__)
 
@@ -50,6 +50,23 @@ class LoadingService:
             instance_id=instance_id,
             trip=trip,
             stop_times=stop_times,
+        )
+
+    async def load_request(
+        self,
+        instance_id: str,
+        request: RequestRecord,
+    ) -> None:
+        await self._repository.insert_request(instance_id=instance_id, request=request)
+
+    async def load_quality_issues_batch(
+        self,
+        instance_id: str,
+        quality_issues: list[QualityIssueRecord],
+    ) -> None:
+        await self._repository.insert_quality_issues(
+            instance_id=instance_id,
+            quality_issues=quality_issues,
         )
 
     async def load_realtime_trip_and_stop_times(

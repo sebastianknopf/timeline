@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Protocol
 from ..exports.models import ExportDataSet
 
 if TYPE_CHECKING:
-    from ..loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
+    from ..loading.models import QualityIssueRecord, RouteRecord, StopRecord, StopTimeRecord, TripRecord
 
 
 class TimelineRepositoryInterface(Protocol):
@@ -96,6 +96,20 @@ class TimelineRepositoryInterface(Protocol):
         stop_times: list[StopTimeRecord],
     ) -> None:
         """Upsert stop time rows when realtime information arrives."""
+
+    async def insert_request(
+        self,
+        instance_id: str,
+        request: RequestRecord,
+    ) -> None:
+        """Insert one request row for one instance without upsert semantics."""
+
+    async def insert_quality_issues(
+        self,
+        instance_id: str,
+        quality_issues: list[QualityIssueRecord],
+    ) -> None:
+        """Insert a batch of quality issue rows for one instance without upsert semantics."""
 
     async def get_nominal_trip(
         self,

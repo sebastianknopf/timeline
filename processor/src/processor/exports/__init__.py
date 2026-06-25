@@ -1,7 +1,4 @@
-from .export_executor import TimelineExportExecutor
-from .intf_export_executor import ExportExecutorInterface
 from .models import ExportDataSet, ExportRouteRow, ExportStopRow, ExportStopTimeRow, ExportTripRow
-from .timeline_export import TimelineExport
 
 __all__ = [
     "ExportDataSet",
@@ -13,3 +10,19 @@ __all__ = [
     "TimelineExport",
     "TimelineExportExecutor",
 ]
+
+
+def __getattr__(name: str) -> object:
+    if name == "ExportExecutorInterface":
+        from .intf_export_executor import ExportExecutorInterface
+
+        return ExportExecutorInterface
+    if name == "TimelineExport":
+        from .timeline_export import TimelineExport
+
+        return TimelineExport
+    if name == "TimelineExportExecutor":
+        from .export_executor import TimelineExportExecutor
+
+        return TimelineExportExecutor
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
