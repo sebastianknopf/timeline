@@ -23,12 +23,14 @@ class QualityReportServiceTests(unittest.TestCase):
             ),
         )
         self.pipeline = self.instance.pipelines[0]
-        self.service = QualityReportService(self.instance, self.pipeline)
+        self.service = QualityReportService()
 
     def test_add_request_populates_instance_id_and_request_fields(self) -> None:
         timestamp = datetime(2026, 6, 23, 12, 0, tzinfo=timezone.utc)
 
         self.service.report_request(
+            instance=self.instance,
+            pipeline=self.pipeline,
             timestamp=timestamp,
             num_entities=3,
             age_seconds=42,
@@ -49,6 +51,8 @@ class QualityReportServiceTests(unittest.TestCase):
         timestamp = datetime(2026, 6, 23, 12, 5, tzinfo=timezone.utc)
 
         self.service.report_quality_issue(
+            instance=self.instance,
+            pipeline=self.pipeline,
             timestamp=timestamp,
             entity_id="trip-1",
             issue_type_id=QualityIssue.OperatorIdIsNull,
@@ -57,7 +61,6 @@ class QualityReportServiceTests(unittest.TestCase):
             operator_id="op-1",
             operator_name="Operator",
             assessment_value="HIGH",
-            num_affected_values=2,
         )
 
         issues = self.service.get_quality_issues()
@@ -78,12 +81,16 @@ class QualityReportServiceTests(unittest.TestCase):
         timestamp = datetime(2026, 6, 23, 12, 10, tzinfo=timezone.utc)
 
         self.service.report_quality_issue(
+            instance=self.instance,
+            pipeline=self.pipeline,
             timestamp=timestamp,
             entity_id="trip-2",
             issue_type_id=QualityIssue.RouteIdIsNull,
             assessment_value="LOW",
         )
         self.service.report_quality_issue(
+            instance=self.instance,
+            pipeline=self.pipeline,
             timestamp=timestamp,
             entity_id="trip-2",
             issue_type_id=QualityIssue.RouteIdIsNull,

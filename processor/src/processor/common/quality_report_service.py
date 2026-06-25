@@ -11,15 +11,15 @@ from ..loading.models import QualityIssueRecord, RequestRecord
 class QualityReportService:
     """Service for generating quality reports."""
 
-    def __init__(self, instance_config: InstanceConfig, pipeline_config: PipelineConfig) -> None:
-        self._instance_config: InstanceConfig = instance_config
-        self._pipeline_config: PipelineConfig = pipeline_config
+    def __init__(self) -> None:
         
         self._request: RequestRecord | None = None
         self._quality_issues: list[QualityIssueRecord] = []
 
     def report_request(
             self, 
+            instance: InstanceConfig,
+            pipeline: PipelineConfig,
             timestamp: datetime,
             num_entities: int,
             age_seconds: int,
@@ -36,9 +36,9 @@ class QualityReportService:
         """
 
         request: RequestRecord = RequestRecord(
-            instance_id=self._instance_config.id,
-            request_id=self._compute_request_id(self._pipeline_config.id, timestamp),
-            pipeline_id=self._pipeline_config.id,
+            instance_id=instance.id,
+            request_id=self._compute_request_id(pipeline.id, timestamp),
+            pipeline_id=pipeline.id,
             timestamp=timestamp,
             num_entities=num_entities,
             age_seconds=age_seconds,
@@ -49,6 +49,8 @@ class QualityReportService:
 
     def report_quality_issue(
             self,
+            instance: InstanceConfig,
+            pipeline: PipelineConfig,
             timestamp: datetime,
             entity_id: str,
             issue_type_id: QualityIssue,
@@ -56,8 +58,7 @@ class QualityReportService:
             concessionaire_name: str | None = None,
             operator_id: str | None = None,
             operator_name: str | None = None,
-            assessment_value: str | None = None,
-            num_affected_values: int | None = None
+            assessment_value: str | None = None
         ) -> None:
         """
         Add a quality issue record to the quality report.
@@ -74,9 +75,9 @@ class QualityReportService:
         """
 
         quality_issue: QualityIssueRecord = QualityIssueRecord(
-            instance_id=self._instance_config.id,
-            issue_id=self._compute_quality_issue_id(self._pipeline_config.id, timestamp, entity_id, issue_type_id),
-            pipeline_id=self._pipeline_config.id,
+            instance_id=instance.id,
+            issue_id=self._compute_quality_issue_id(pipeline.id, timestamp, entity_id, issue_type_id),
+            pipeline_id=pipeline.id,
             timestamp=timestamp,
             entity_id=entity_id,
             issue_type_id=issue_type_id.value,

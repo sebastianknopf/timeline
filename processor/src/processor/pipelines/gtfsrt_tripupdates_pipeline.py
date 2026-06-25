@@ -43,7 +43,7 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
         mapping_service: MappingServiceInterface,
         processor_timezone_name: str = "UTC",
     ) -> None:
-        super().__init__()
+        super().__init__(loading_service=loading_service)
 
         self._loading_service = loading_service
         self._mapping_service = mapping_service
@@ -187,7 +187,7 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
         finally:
 
             # submit data quality report independent of success or failure of the realtime processing
-            self.submit_quality_report()
+            await self.submit_quality_report(instance=instance)
 
     def _read_endpoint_payload(self, endpoint: str, authentication: AuthenticationConfig | None) -> bytes:
         request = Request(endpoint)

@@ -57,7 +57,10 @@ class LoadingService:
         instance_id: str,
         request: RequestRecord,
     ) -> None:
-        await self._repository.insert_request(instance_id=instance_id, request=request)
+        await self._repository.insert_request(
+            instance_id=instance_id, 
+            request=request
+        )
 
     async def load_quality_issues_batch(
         self,

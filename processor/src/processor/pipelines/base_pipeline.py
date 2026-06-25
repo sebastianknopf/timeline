@@ -36,18 +36,15 @@ class NominalPipelineBase(PipelineBase):
 class RealtimePipelineBase(PipelineBase):
     """Abstract base class for all realtime pipeline implementations."""
 
-    def __init__(self, instance_config: InstanceConfig, pipeline_config: PipelineConfig, loading_service: LoadingService) -> None:
-        self._instance_config = instance_config
-        
-        self._quality_report_service = QualityReportService(
-            self._instance_config, 
-            pipeline_config
-        )
+    def __init__(self, loading_service: LoadingService) -> None:
+        self._quality_report_service: QualityReportService = QualityReportService()
 
         self._loading_service = loading_service
 
     def report_request(
             self, 
+            instance: InstanceConfig,
+            pipeline: PipelineConfig,
             timestamp: date, 
             num_entities: int, 
             age_seconds: int, 
@@ -57,6 +54,8 @@ class RealtimePipelineBase(PipelineBase):
         
         self._quality_report_service.report_request(
             timestamp=timestamp,
+            instance=instance,
+            pipeline=pipeline,
             num_entities=num_entities,
             age_seconds=age_seconds,
             status_code=status_code
@@ -64,6 +63,8 @@ class RealtimePipelineBase(PipelineBase):
 
     def report_quality_issue(
             self,
+            instance: InstanceConfig,
+            pipeline: PipelineConfig,
             timestamp: date,
             entity_id: str,
             issue_type_id: int,
@@ -71,32 +72,32 @@ class RealtimePipelineBase(PipelineBase):
             concessionaire_name: str | None = None,
             operator_id: str | None = None,
             operator_name: str | None = None,
-            assessment_value: str | None = None,
-            num_affected_values: int | None = 1
+            assessment_value: str | None = None
         ) -> None:
         """Report a quality issue to the quality report service."""
-        
+
         self._quality_report_service.report_quality_issue(
             timestamp=timestamp,
+            instance=instance,
+            pipeline=pipeline,
             entity_id=entity_id,
             issue_type_id=issue_type_id,
             concessionaire_id=concessionaire_id,
             concessionaire_name=concessionaire_name,
             operator_id=operator_id,
             operator_name=operator_name,
-            assessment_value=assessment_value,
-            num_affected_values=num_affected_values
+            assessment_value=assessment_value
         )
 
-    def submit_quality_report(self) -> None:
+    async def submit_quality_report(self, instance: InstanceConfig) -> None:
         """Submit the quality report to the timeline repository."""
-        
-        self._loading_service.load_request(
-            self._instance_config.id,
-            self._quality_report_service.get_request()
+
+        await self._loading_service.load_request(
+            instance.id,
+            self._quality_report_service.get_request(),
         )
 
-        self._loading_service.load_quality_issues(
-            self._instance_config.id,
-            self._quality_report_service.get_quality_issues()
+        await self._loading_service.load_quality_issues_batch(
+            instance.id,
+            self._quality_report_service.get_quality_issues(),
         )
