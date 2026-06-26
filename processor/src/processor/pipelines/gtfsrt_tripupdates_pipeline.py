@@ -22,6 +22,16 @@ from .base_pipeline import RealtimePipelineBase
 LOGGER = structlog.get_logger(__name__)
 
 
+class HttpError(RuntimeError):
+    """Raised when an HTTP request to a GTFS realtime endpoint fails."""
+
+    def __init__(self, status_code: int, message: str | None = None) -> None:
+        super().__init__(self.message)
+
+        self.status_code = status_code
+        self.message = message or f"HTTP request failed with status code {status_code}"
+
+
 class GtfsRealtimePipelineError(RuntimeError):
     """Raised when GTFS realtime processing cannot produce a valid payload."""
 
@@ -238,6 +248,43 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                 status_code=200
             )
 
+        except HttpError as http_exc:
+            LOGGER.exception(
+                "gtfs_realtime_tripupdates_pipeline_http_error",
+                instance_id=instance.id,
+                pipeline_id=pipeline.id,
+                processor_timezone=self._processor_timezone_name,
+                status_code=http_exc.status_code,
+                error=str(http_exc),
+            )
+
+            self.report_request(
+                instance=instance,
+                pipeline=pipeline,
+                timestamp=datetime.now(self._processor_timezone),
+                num_entities=0,
+                age_seconds=0,
+                status_code=http_exc.status_code
+            )
+
+        except Exception as exc:
+            LOGGER.exception(
+                "gtfs_realtime_tripupdates_pipeline_error",
+                instance_id=instance.id,
+                pipeline_id=pipeline.id,
+                processor_timezone=self._processor_timezone_name,
+                error=str(exc),
+            )
+            
+            self.report_request(
+                instance=instance,
+                pipeline=pipeline,
+                timestamp=datetime.now(self._processor_timezone),
+                num_entities=0,
+                age_seconds=0,
+                status_code=0
+            )
+
         finally:
 
             # submit data quality report independent of success or failure of the realtime processing
@@ -249,6 +296,11 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
             request.add_header(key, value)
 
         with urlopen(request, timeout=30) as response:
+            status_code: int = response.status
+
+            if status_code != 200:
+                raise HttpError(status_code, f"HTTP request to {endpoint} failed with status code {status_code}")
+            
             return response.read()
 
     def _decode_feed_message(self, payload: bytes) -> gtfs_realtime_pb2.FeedMessage:
