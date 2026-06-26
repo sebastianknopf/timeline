@@ -76,13 +76,13 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("instance_id", "issue_id", name="pk_fact_quality_issues"),
     )
     op.create_index(
-        "ix_fact_quality_issues_instance_id_pipeline_id_timestamp_issue_type_id",
+        "ix_fact_quality_issues_on_issue_type",
         "fact_quality_issues",
         ["instance_id", "pipeline_id", "timestamp", "issue_type_id"],
         unique=False,
     )
     op.create_index(
-        "ix_fact_quality_issues_instance_id_pipeline_id_concessionaire_id_operator_id",
+        "ix_fact_quality_issues_on_operator",
         "fact_quality_issues",
         ["instance_id", "pipeline_id", "concessionaire_id", "operator_id"],
         unique=False,
@@ -91,11 +91,11 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index(
-        "ix_fact_quality_issues_instance_id_pipeline_id_concessionaire_id_operator_id",
+        "ix_fact_quality_issues_on_operator",
         table_name="fact_quality_issues",
     )
     op.drop_index(
-        "ix_fact_quality_issues_instance_id_pipeline_id_timestamp_issue_type_id",
+        "ix_fact_quality_issues_on_issue_type",
         table_name="fact_quality_issues",
     )
     op.drop_table("fact_quality_issues")
