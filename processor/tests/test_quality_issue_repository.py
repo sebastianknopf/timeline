@@ -88,7 +88,7 @@ class LoadingServiceQualityIssueTests(unittest.IsolatedAsyncioTestCase):
 
         import asyncio
 
-        asyncio.run(repository.insert_quality_issues(instance_id="demo", quality_issues=[issue]))
+        asyncio.run(repository.upsert_quality_issues(instance_id="demo", quality_issues=[issue]))
 
         self.assertEqual(len(session.executed), 1)
         statement, params = session.executed[0]

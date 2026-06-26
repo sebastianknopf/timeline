@@ -104,12 +104,12 @@ class TimelineRepositoryInterface(Protocol):
     ) -> None:
         """Insert one request row for one instance without upsert semantics."""
 
-    async def insert_quality_issues(
+    async def upsert_quality_issues(
         self,
         instance_id: str,
         quality_issues: list[QualityIssueRecord],
     ) -> None:
-        """Insert a batch of quality issue rows for one instance without upsert semantics."""
+        """Upsert a batch of quality issue rows for one instance."""
 
     async def get_nominal_trip(
         self,

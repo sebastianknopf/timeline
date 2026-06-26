@@ -111,12 +111,12 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
     ) -> None:
         await asyncio.to_thread(self._insert_request_sync, instance_id, request)
 
-    async def insert_quality_issues(
+    async def upsert_quality_issues(
         self,
         instance_id: str,
         quality_issues: list[QualityIssueRecord],
     ) -> None:
-        await asyncio.to_thread(self._insert_quality_issues_sync, instance_id, quality_issues)
+        await asyncio.to_thread(self._upsert_quality_issues_sync, instance_id, quality_issues)
 
     async def get_nominal_trip(
         self,
@@ -668,7 +668,7 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                     }],
                 )
 
-    def _insert_quality_issues_sync(
+    def _upsert_quality_issues_sync(
         self,
         instance_id: str,
         quality_issues: list[QualityIssueRecord],
@@ -698,7 +698,23 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                         }
                         for issue in issues_chunk
                     ]
-                    session.execute(table.insert(), rows)
+                    insert_stmt = postgresql_insert(table).values(rows)
+                    upsert_stmt = insert_stmt.on_conflict_do_update(
+                        index_elements=["instance_id", "issue_id"],
+                        set_={
+                            "pipeline_id": insert_stmt.excluded.pipeline_id,
+                            "timestamp": insert_stmt.excluded.timestamp,
+                            "entity_id": insert_stmt.excluded.entity_id,
+                            "issue_type_id": insert_stmt.excluded.issue_type_id,
+                            "concessionaire_id": insert_stmt.excluded.concessionaire_id,
+                            "concessionaire_name": insert_stmt.excluded.concessionaire_name,
+                            "operator_id": insert_stmt.excluded.operator_id,
+                            "operator_name": insert_stmt.excluded.operator_name,
+                            "assessment_value": insert_stmt.excluded.assessment_value,
+                            "num_affected_values": insert_stmt.excluded.num_affected_values,
+                        },
+                    )
+                    session.execute(upsert_stmt)
 
     def _get_nominal_trip_sync(
         self,

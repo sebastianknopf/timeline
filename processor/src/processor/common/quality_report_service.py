@@ -126,6 +126,14 @@ class QualityReportService:
 
         return self._quality_issues
     
+    def clear(self) -> None:
+        """
+        Clear all records in the quality report.
+        """
+
+        self._request = None
+        self._quality_issues.clear()
+    
     def _compute_request_id(self, pipeline_id: str, timestamp: datetime) -> str:
         """
         Compute a unique record ID based on the pipeline ID and timestamp.
@@ -149,10 +157,12 @@ class QualityReportService:
         ) -> str:
         """
         Compute a unique quality issue ID based on the pipeline ID, timestamp, entity ID, and issue type ID.
+
+        To have each issue one time per entity per day, the timestamp is only used to extract the date (YYYYMMDD) for the ID.
         
         Args:
             pipeline_id (str): The ID of the pipeline.
-            timestamp (datetime): The timestamp of the quality issue.
+            timestamp (datetime): The timestamp of the quality issue. Only the date is extracted for the ID.
             entity_id (str): The ID of the entity with the quality issue.
             issue_type_id (QualityIssue): The type of the quality issue.
 
@@ -160,4 +170,4 @@ class QualityReportService:
             str: The computed quality issue ID.
         """
 
-        return md5(f"{pipeline_id}-{timestamp.strftime('%Y%m%d%H%M%S')}-{entity_id}-{issue_type_id.value}".encode()).hexdigest()
+        return md5(f"{pipeline_id}-{timestamp.strftime('%Y%m%d')}-{entity_id}-{issue_type_id.value}".encode()).hexdigest()
