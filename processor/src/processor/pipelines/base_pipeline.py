@@ -36,10 +36,16 @@ class NominalPipelineBase(PipelineBase):
 class RealtimePipelineBase(PipelineBase):
     """Abstract base class for all realtime pipeline implementations."""
 
-    def __init__(self, loading_service: LoadingService) -> None:
-        self._quality_report_service: QualityReportService = QualityReportService()
+    def __init__(
+            self, 
+            loading_service: LoadingService,
+        ) -> None:
+        self._loading_service: LoadingService = loading_service
 
-        self._loading_service = loading_service
+        # quality report service MUST BE instantiated in the base constructor and NOT
+        # on __main__() level for injection because it is required to work on pipeline instance
+        # level, not globally!
+        self._quality_report_service: QualityReportService = QualityReportService()
 
     def report_request(
             self, 
@@ -101,3 +107,5 @@ class RealtimePipelineBase(PipelineBase):
             instance.id,
             self._quality_report_service.get_quality_issues(),
         )
+
+        self._quality_report_service.clear()

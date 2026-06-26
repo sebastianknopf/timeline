@@ -92,7 +92,7 @@ class RecordingRepository:
     async def insert_request(self, instance_id: str, request: RequestRecord) -> None:
         self.requests.append((instance_id, request))
 
-    async def insert_quality_issues(
+    async def upsert_quality_issues(
         self,
         instance_id: str,
         quality_issues: list[QualityIssueRecord],
@@ -222,7 +222,7 @@ class GtfsRtTripUpdatesPipelineTests(unittest.IsolatedAsyncioTestCase):
         )
 
         await repository.insert_request(instance_id="demo", request=request)
-        await repository.insert_quality_issues(instance_id="demo", quality_issues=[quality_issue])
+        await repository.upsert_quality_issues(instance_id="demo", quality_issues=[quality_issue])
 
         self.assertEqual([("demo", request)], repository.requests)
         self.assertEqual([("demo", quality_issue)], repository.quality_issues)
@@ -270,8 +270,8 @@ class GtfsRtTripUpdatesPipelineTests(unittest.IsolatedAsyncioTestCase):
 
         await repository.insert_request(instance_id="demo", request=in_range_request)
         await repository.insert_request(instance_id="demo", request=out_of_range_request)
-        await repository.insert_quality_issues(instance_id="demo", quality_issues=[in_range_issue])
-        await repository.insert_quality_issues(instance_id="other", quality_issues=[other_instance_issue])
+        await repository.upsert_quality_issues(instance_id="demo", quality_issues=[in_range_issue])
+        await repository.upsert_quality_issues(instance_id="other", quality_issues=[other_instance_issue])
 
         dataset = await repository.get_export_dataset(
             instance_id="demo",

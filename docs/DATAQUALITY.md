@@ -79,3 +79,4 @@ async def execute(...) -> None:
 Notes:
 
 - the module `src/processor/common/quality_issues.py` contains an enum with the readable issue codes and their internal IDs.
+- the `QualityReportService` instance **MUST BE** intialized on pipeline level, **NOT** in `__main__.py` as the service needs to be owned by the pipeline itself, not globally. Otherwise, the pipelines would infer each other in negative way.

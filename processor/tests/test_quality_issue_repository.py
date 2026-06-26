@@ -19,7 +19,7 @@ class RecordingRepository:
     def __init__(self) -> None:
         self.calls: list[tuple[str, list[QualityIssueRecord]]] = []
 
-    async def insert_quality_issues(
+    async def upsert_quality_issues(
         self,
         instance_id: str,
         quality_issues: list[QualityIssueRecord],
@@ -68,7 +68,7 @@ class LoadingServiceQualityIssueTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(repository.calls, [("demo", [issue])])
 
-    def test_repository_inserts_quality_issue_rows_without_upsert(self) -> None:
+    def test_repository_upserts_quality_issue_rows_without_updating_primary_keys(self) -> None:
         session = _FakeSession()
         repository = SqlAlchemyTimelineRepository(session_factory=lambda: session)
         issue = QualityIssueRecord(
@@ -93,21 +93,8 @@ class LoadingServiceQualityIssueTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(session.executed), 1)
         statement, params = session.executed[0]
         self.assertIsNotNone(statement)
-        self.assertEqual(params, [{
-            "instance_id": "demo",
-            "issue_id": "issue-2",
-            "pipeline_id": "gtfsrt-tripupdates",
-            "timestamp": issue.timestamp,
-            "entity_id": "trip-2",
-            "issue_type_id": 9,
-            "concessionaire_id": "con-2",
-            "concessionaire_name": "Concessionaire 2",
-            "operator_id": "op-2",
-            "operator_name": "Operator 2",
-            "assessment_value": "LOW",
-            "num_affected_values": 1,
-        }])
-        self.assertNotIn("ON CONFLICT", str(statement))
+        self.assertIsNone(params)
+        self.assertIn("ON CONFLICT", str(statement))
 
 
 if __name__ == "__main__":

@@ -67,7 +67,7 @@ class LoadingService:
         instance_id: str,
         quality_issues: list[QualityIssueRecord],
     ) -> None:
-        await self._repository.insert_quality_issues(
+        await self._repository.upsert_quality_issues(
             instance_id=instance_id,
             quality_issues=quality_issues,
         )
