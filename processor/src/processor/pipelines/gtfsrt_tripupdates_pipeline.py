@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from google.transit import gtfs_realtime_pb2
 import structlog
 
+from ..common.global_id import GlobalId
+from ..common.quality_issues import QualityIssue
 from ..loading.loading_service import LoadingService
 from ..loading.models import StopTimeRecord, TripRecord
 from ..mapping.intf_mapping_service import MappingServiceInterface
@@ -86,7 +88,26 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                     skipped_entities += 1
                     continue
 
+                if not GlobalId.is_global_id(trip_id):
+                    self.report_quality_issue(
+                        instance=instance,
+                        pipeline=pipeline,
+                        timestamp=now_processor_tz,
+                        entity_id=entity.id,
+                        issue_type_id=QualityIssue.TripIdNonGlobal,
+                        assessment_value=trip_id
+                    )
+
                 trip_update_count += 1
+
+                if not trip_descriptor.HasField("start_date"):
+                    self.report_quality_issue(
+                        instance=instance,
+                        pipeline=pipeline,
+                        timestamp=now_processor_tz,
+                        entity_id=entity.id,
+                        issue_type_id=QualityIssue.OperationDayIsNull
+                    )
 
                 operation_day = _parse_service_date(
                     raw_value=(trip_descriptor.start_date or "").strip(),
@@ -94,6 +115,26 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                 )
 
                 route_id = (trip_descriptor.route_id or "").strip() or "UNKNOWN-ROUTE"
+
+                if route_id == "UNKNOWN-ROUTE":
+                    self.report_quality_issue(
+                        instance=instance,
+                        pipeline=pipeline,
+                        timestamp=now_processor_tz,
+                        entity_id=entity.id,
+                        issue_type_id=QualityIssue.RouteIdIsNull
+                    )
+
+                if route_id != "UNKNOWN-ROUTE" and not GlobalId.is_global_id(route_id):
+                    self.report_quality_issue(
+                        instance=instance,
+                        pipeline=pipeline,
+                        timestamp=now_processor_tz,
+                        entity_id=entity.id,
+                        issue_type_id=QualityIssue.RouteIdNonGlobal,
+                        assessment_value=route_id
+                    )
+
                 if route_filter:
                     if not trip_descriptor.route_id or not _route_matches_filter(route_id, route_filter):
                         skipped_entities += 1
@@ -132,9 +173,13 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                     continue
 
                 stop_updates = self._extract_stop_updates(
+                    instance=instance,
+                    pipeline=pipeline,
+                    entity_id=entity.id,
                     updates=trip_update.stop_time_update,
                     default_schedule_relationship=trip_schedule_relationship,
                     now_utc=now_utc,
+                    now_processor_tz=now_processor_tz,
                     trip_timestamp_utc=_timestamp_to_utc(trip_update.timestamp) if trip_update.timestamp else None,
                     feed_timestamp_utc=feed_timestamp_utc,
                 )
@@ -184,6 +229,15 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                 loaded_stop_time_count=loaded_stop_time_count,
             )
 
+            self.report_request(
+                instance=instance,
+                pipeline=pipeline,
+                timestamp=now_processor_tz,
+                num_entities=trip_update_count,
+                age_seconds=(now_processor_tz - feed_timestamp_utc).total_seconds() if feed_timestamp_utc else 0,
+                status_code=200
+            )
+
         finally:
 
             # submit data quality report independent of success or failure of the realtime processing
@@ -207,9 +261,13 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
 
     def _extract_stop_updates(
         self,
+        instance: InstanceConfig,
+        pipeline: PipelineConfig,
+        entity_id: str,
         updates: Iterable[gtfs_realtime_pb2.TripUpdate.StopTimeUpdate],
         default_schedule_relationship: str,
         now_utc: datetime,
+        now_processor_tz: datetime,
         trip_timestamp_utc: datetime | None,
         feed_timestamp_utc: datetime | None,
     ) -> list[_StopUpdate]:
@@ -219,6 +277,15 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
             stop_id = (update.stop_id or "").strip()
             if not stop_id:
                 continue
+
+            if not GlobalId.is_global_id(stop_id):
+                self.report_quality_issue(
+                        instance=instance,
+                        pipeline=pipeline,
+                        timestamp=now_processor_tz,
+                        entity_id=entity_id,
+                        issue_type_id=QualityIssue.StopIdNonGlobal
+                    )
 
             stop_sequence = update.stop_sequence if update.HasField("stop_sequence") else index + 1
 
@@ -246,6 +313,17 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
             )
             has_arrival_delay = update.HasField("arrival") and update.arrival.HasField("delay")
             has_departure_delay = update.HasField("departure") and update.departure.HasField("delay")
+
+            if arrival_time is not None and departure_time is not None:
+                if departure_time < arrival_time:
+                    self.report_quality_issue(
+                        instance=instance,
+                        pipeline=pipeline,
+                        timestamp=now_processor_tz,
+                        entity_id=entity_id,
+                        issue_type_id=QualityIssue.EstimatedDepatureTimeBeforeArrivalTime,
+                        assessment_value=f"{departure_time.isoformat()} < {arrival_time.isoformat()}"
+                    )
 
             if arrival_time is None and departure_time is None and not has_arrival_delay and not has_departure_delay:
                 continue
