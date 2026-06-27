@@ -336,7 +336,8 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                         pipeline=pipeline,
                         timestamp=now_processor_tz,
                         entity_id=entity_id,
-                        issue_type_id=QualityIssue.StopIdNonGlobal
+                        issue_type_id=QualityIssue.StopIdNonGlobal,
+                        assessment_value=stop_id
                     )
 
             stop_sequence = update.stop_sequence if update.HasField("stop_sequence") else index + 1
