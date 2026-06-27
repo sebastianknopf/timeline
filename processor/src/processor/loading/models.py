@@ -85,7 +85,9 @@ class RequestRecord:
     pipeline_id: str
     timestamp: datetime
     num_entities: int
-    age_seconds: int
+    loaded_direct_trip_count: int = 0
+    loaded_matched_trip_count: int = 0
+    age_seconds: int = 0
     status_code: int = 200
 
 

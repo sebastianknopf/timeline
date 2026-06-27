@@ -22,7 +22,9 @@ class QualityReportService:
             pipeline: PipelineConfig,
             timestamp: datetime,
             num_entities: int,
-            age_seconds: int,
+            loaded_direct_trip_count: int = 0,
+            loaded_matched_trip_count: int = 0,
+            age_seconds: int = 0,
             status_code: int = 200
         ) -> None:
         """
@@ -31,6 +33,8 @@ class QualityReportService:
         Args:
             timestamp (datetime): The timestamp of the request.
             num_entities (int): The number of entities processed in the request.
+            loaded_direct_trip_count (int): The number of direct trips loaded in the request.
+            loaded_matched_trip_count (int): The number of matched trips loaded in the request.
             age_seconds (int): The age of the request in seconds.
             status_code (int, optional): The HTTP status code of the request. Defaults to 200.
         """
@@ -41,6 +45,8 @@ class QualityReportService:
             pipeline_id=pipeline.id,
             timestamp=timestamp,
             num_entities=num_entities,
+            loaded_direct_trip_count=loaded_direct_trip_count,
+            loaded_matched_trip_count=loaded_matched_trip_count,
             age_seconds=age_seconds,
             status_code=status_code
         )

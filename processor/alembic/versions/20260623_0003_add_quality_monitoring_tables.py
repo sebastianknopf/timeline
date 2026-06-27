@@ -32,6 +32,18 @@ def upgrade() -> None:
         sa.Column("pipeline_id", sa.Text(), nullable=False),
         sa.Column("timestamp", sa.DateTime(timezone=True), nullable=False),
         sa.Column("num_entities", sa.Integer(), nullable=False),
+        sa.Column(
+            "loaded_direct_trip_count",
+            sa.Integer(),
+            nullable=False,
+            server_default=sa.text("0"),
+        ),
+        sa.Column(
+            "loaded_matched_trip_count",
+            sa.Integer(),
+            nullable=False,
+            server_default=sa.text("0"),
+        ),
         sa.Column("age_seconds", sa.Integer(), nullable=False),
         sa.Column(
             "status_code",

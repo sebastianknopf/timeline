@@ -13,7 +13,7 @@ import structlog
 
 from ..common.global_id import GlobalId
 from ..common.quality_issues import QualityIssue
-from ..loading.loading_service import LoadingService
+from ..loading.loading_service import LoadingService, RealtimeLoadingResult
 from ..loading.models import StopTimeRecord, TripRecord
 from ..mapping.intf_mapping_service import MappingServiceInterface
 from ..runtime_config import AuthenticationConfig, FilterEntryConfig, InstanceConfig, PipelineConfig
@@ -78,25 +78,23 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
             now_processor_tz = now_utc.astimezone(self._processor_timezone)
             feed_timestamp_utc = _timestamp_to_utc(feed_message.header.timestamp) if feed_message.header.timestamp else None
 
-            entity_count = 0
             trip_update_count = 0
-            skipped_entities = 0
-            loaded_trip_count = 0
+            loaded_direct_trip_count = 0
+            loaded_matched_trip_count = 0
             loaded_stop_time_count = 0
             route_filter = pipeline.filter.routes if pipeline.filter is not None else ()
 
             for entity in feed_message.entity:
-                entity_count += 1
                 if not entity.HasField("trip_update"):
-                    skipped_entities += 1
                     continue
 
                 trip_update = entity.trip_update
                 trip_descriptor = trip_update.trip
                 trip_id = (trip_descriptor.trip_id or "").strip()
                 if not trip_id:
-                    skipped_entities += 1
                     continue
+
+                trip_update_count += 1
 
                 if not GlobalId.is_global_id(trip_id):
                     self.report_quality_issue(
@@ -107,8 +105,6 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                         issue_type_id=QualityIssue.TripIdNonGlobal,
                         assessment_value=trip_id
                     )
-
-                trip_update_count += 1
 
                 if not trip_descriptor.HasField("start_date"):
                     self.report_quality_issue(
@@ -147,7 +143,6 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
 
                 if route_filter:
                     if not trip_descriptor.route_id or not _route_matches_filter(route_id, route_filter):
-                        skipped_entities += 1
                         LOGGER.debug(
                             "realtime_trip_discarded_by_route_filter",
                             instance_id=instance.id,
@@ -179,7 +174,7 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                         route_id=route_id,
                         operation_day_date=str(operation_day),
                     )
-                    skipped_entities += 1
+
                     continue
 
                 stop_updates = self._extract_stop_updates(
@@ -218,25 +213,42 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                     stop_times=stop_time_records,
                 )
 
-                await self._loading_service.load_realtime_trip_and_stop_times(
+                realtime_loading_result: RealtimeLoadingResult = await self._loading_service.load_realtime_trip_and_stop_times(
                     instance_id=instance.id,
                     trip=mapped_trip,
                     stop_times=mapped_stop_times,
                 )
 
-                loaded_trip_count += 1
-                loaded_stop_time_count += len(mapped_stop_times)
+                if realtime_loading_result == RealtimeLoadingResult.SUCCESS_DIRECT:
+                    loaded_direct_trip_count += 1
+                elif realtime_loading_result == RealtimeLoadingResult.SUCCESS_MATCHED:
+                    loaded_matched_trip_count += 1
+                elif realtime_loading_result == RealtimeLoadingResult.NO_NOMINAL_TRIP_FOUND:
+                    self.report_quality_issue(
+                        instance=instance,
+                        pipeline=pipeline,
+                        timestamp=now_processor_tz,
+                        entity_id=entity.id,
+                        issue_type_id=QualityIssue.NoNominalTripFound
+                    )
+                elif realtime_loading_result == RealtimeLoadingResult.NO_AMBIGUOUS_NOMINAL_TRIP_FOUND:
+                    self.report_quality_issue(
+                        instance=instance,
+                        pipeline=pipeline,
+                        timestamp=now_processor_tz,
+                        entity_id=entity.id,
+                        issue_type_id=QualityIssue.NoAmbiguousNominalTripFound
+                    )
 
             LOGGER.info(
                 "gtfs_realtime_tripupdates_pipeline_loaded",
                 instance_id=instance.id,
                 pipeline_id=pipeline.id,
                 processor_timezone=self._processor_timezone_name,
-                entity_count=entity_count,
-                trip_update_count=trip_update_count,
-                skipped_entity_count=skipped_entities,
-                loaded_trip_count=loaded_trip_count,
-                loaded_stop_time_count=loaded_stop_time_count,
+                num_entities=trip_update_count,
+                loaded_direct_trip_count=loaded_direct_trip_count,
+                loaded_matched_trip_count=loaded_matched_trip_count,
+                loaded_stop_time_count=loaded_stop_time_count
             )
 
             self.report_request(
@@ -244,6 +256,8 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                 pipeline=pipeline,
                 timestamp=now_processor_tz,
                 num_entities=trip_update_count,
+                loaded_direct_trip_count=loaded_direct_trip_count,
+                loaded_matched_trip_count=loaded_matched_trip_count,
                 age_seconds=(now_processor_tz - feed_timestamp_utc).total_seconds() if feed_timestamp_utc else 0,
                 status_code=200
             )

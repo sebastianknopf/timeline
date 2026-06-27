@@ -222,6 +222,8 @@ class DatabaseModelsTests(unittest.TestCase):
             "pipeline_id": ("TEXT", False),
             "timestamp": ("TIMESTAMP WITH TIME ZONE", False),
             "num_entities": ("INTEGER", False),
+            "loaded_direct_trip_count": ("INTEGER", False),
+            "loaded_matched_trip_count": ("INTEGER", False),
             "age_seconds": ("INTEGER", False),
             "status_code": ("INTEGER", False),
         }

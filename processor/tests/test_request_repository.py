@@ -55,6 +55,8 @@ class LoadingServiceRequestTests(unittest.IsolatedAsyncioTestCase):
             pipeline_id="nominal-main",
             timestamp=datetime(2026, 5, 31, 8, 0, tzinfo=timezone.utc),
             num_entities=3,
+            loaded_direct_trip_count=2,
+            loaded_matched_trip_count=1,
             age_seconds=30,
             status_code=200,
         )
@@ -72,6 +74,8 @@ class LoadingServiceRequestTests(unittest.IsolatedAsyncioTestCase):
             pipeline_id="nominal-main",
             timestamp=datetime(2026, 5, 31, 9, 0, tzinfo=timezone.utc),
             num_entities=5,
+            loaded_direct_trip_count=3,
+            loaded_matched_trip_count=2,
             age_seconds=90,
             status_code=200,
         )
@@ -89,6 +93,8 @@ class LoadingServiceRequestTests(unittest.IsolatedAsyncioTestCase):
             "pipeline_id": "nominal-main",
             "timestamp": request.timestamp,
             "num_entities": 5,
+            "loaded_direct_trip_count": 3,
+            "loaded_matched_trip_count": 2,
             "age_seconds": 90,
             "status_code": 200,
         }])

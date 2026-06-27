@@ -85,6 +85,8 @@ _REQUEST = ExportRequestRow(
     num_entities=3,
     age_seconds=42,
     status_code=200,
+    loaded_direct_trip_count=2,
+    loaded_matched_trip_count=1,
 )
 _QUALITY_ISSUE = ExportQualityIssueRow(
     issue_id="issue-1",
@@ -258,6 +260,34 @@ class TimelineExportTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("stop-A", lines[1])
             self.assertIn("SCHEDULED", lines[1])
 
+    async def test_request_csv_contains_loaded_trip_count_columns(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            directory = Path(tmp_dir)
+            dataset = ExportDataSet(requests=[_REQUEST])
+            repository = RecordingExportRepository(dataset)
+            export = _make_export_config(directory=directory)
+            instance = _make_instance(export)
+            export_obj = TimelineExport(repository=repository)
+
+            await export_obj.execute(
+                instance=instance, export=export, current_date=date(2026, 5, 31)
+            )
+
+            zip_files = list(directory.glob("*.zip"))
+            with zipfile.ZipFile(zip_files[0]) as zf:
+                content = zf.read("requests.txt").decode("utf-8")
+
+            lines = content.strip().splitlines()
+            self.assertEqual(
+                lines[0],
+                "request_id,pipeline_id,timestamp,num_entities,loaded_direct_trip_count,"
+                "loaded_matched_trip_count,age_seconds,status_code",
+            )
+            self.assertIn("2", lines[1])
+            self.assertIn("1", lines[1])
+
     async def test_nullable_fields_written_as_empty_string(self) -> None:
         import tempfile
 
@@ -320,7 +350,10 @@ class TimelineExportTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertIn("id,code", issue_types_content)
             self.assertIn("OperatorIdIsNull", issue_types_content)
-            self.assertIn("request_id,pipeline_id,timestamp,num_entities,age_seconds,status_code", requests_content)
+            self.assertIn(
+                "request_id,pipeline_id,timestamp,num_entities,loaded_direct_trip_count,loaded_matched_trip_count,age_seconds,status_code",
+                requests_content,
+            )
             self.assertIn("req-1", requests_content)
             self.assertIn("issue_id,pipeline_id,timestamp,entity_id,issue_type_id,concessionaire_id,concessionaire_name,operator_id,operator_name,assessment_value,num_affected_values", quality_issues_content)
             self.assertIn("issue-1", quality_issues_content)

@@ -215,6 +215,16 @@ class RequestFact(Base):
     pipeline_id: Mapped[str] = mapped_column(Text, nullable=False)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     num_entities: Mapped[int] = mapped_column(Integer, nullable=False)
+    loaded_direct_trip_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default=text("0"),
+    )
+    loaded_matched_trip_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default=text("0"),
+    )
     age_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     status_code: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("200"))
 

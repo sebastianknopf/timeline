@@ -73,6 +73,8 @@ class ExportRequestRow:
     num_entities: int
     age_seconds: int
     status_code: int = 200
+    loaded_direct_trip_count: int = 0
+    loaded_matched_trip_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)

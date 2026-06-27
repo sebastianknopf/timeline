@@ -53,7 +53,9 @@ class RealtimePipelineBase(PipelineBase):
             pipeline: PipelineConfig,
             timestamp: date, 
             num_entities: int, 
-            age_seconds: int, 
+            loaded_direct_trip_count: int = 0,
+            loaded_matched_trip_count: int = 0,
+            age_seconds: int = 0, 
             status_code: int = 200
         ) -> None:
         """Report a request to the quality report service."""
@@ -63,6 +65,8 @@ class RealtimePipelineBase(PipelineBase):
             instance=instance,
             pipeline=pipeline,
             num_entities=num_entities,
+            loaded_direct_trip_count=loaded_direct_trip_count,
+            loaded_matched_trip_count=loaded_matched_trip_count,
             age_seconds=age_seconds,
             status_code=status_code
         )

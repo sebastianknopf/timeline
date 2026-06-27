@@ -663,6 +663,8 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                         "pipeline_id": request.pipeline_id,
                         "timestamp": request.timestamp,
                         "num_entities": request.num_entities,
+                        "loaded_direct_trip_count": request.loaded_direct_trip_count,
+                        "loaded_matched_trip_count": request.loaded_matched_trip_count,
                         "age_seconds": request.age_seconds,
                         "status_code": request.status_code,
                     }],
@@ -1005,6 +1007,8 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                         pipeline_id=row.pipeline_id,
                         timestamp=row.timestamp,
                         num_entities=row.num_entities,
+                        loaded_direct_trip_count=row.loaded_direct_trip_count,
+                        loaded_matched_trip_count=row.loaded_matched_trip_count,
                         age_seconds=row.age_seconds,
                         status_code=row.status_code,
                     )

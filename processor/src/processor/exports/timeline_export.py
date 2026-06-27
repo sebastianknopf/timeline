@@ -86,6 +86,8 @@ _REQUEST_COLUMNS = [
     "pipeline_id",
     "timestamp",
     "num_entities",
+    "loaded_direct_trip_count",
+    "loaded_matched_trip_count",
     "age_seconds",
     "status_code",
 ]
@@ -181,7 +183,16 @@ def _issue_type_to_row(r: ExportIssueTypeRow) -> list[object]:
 
 
 def _request_to_row(r: ExportRequestRow) -> list[object]:
-    return [r.request_id, r.pipeline_id, r.timestamp, r.num_entities, r.age_seconds, r.status_code]
+    return [
+        r.request_id,
+        r.pipeline_id,
+        r.timestamp,
+        r.num_entities,
+        r.loaded_direct_trip_count,
+        r.loaded_matched_trip_count,
+        r.age_seconds,
+        r.status_code,
+    ]
 
 
 def _quality_issue_to_row(r: ExportQualityIssueRow) -> list[object]:

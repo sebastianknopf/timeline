@@ -27,6 +27,8 @@ class LoadingAndExportModelsTests(unittest.TestCase):
             pipeline_id="pipeline-a",
             timestamp=datetime(2026, 6, 23, 12, 0, tzinfo=datetime.now().astimezone().tzinfo),
             num_entities=3,
+            loaded_direct_trip_count=2,
+            loaded_matched_trip_count=1,
             age_seconds=42,
         )
         quality_issue = QualityIssueRecord(
@@ -41,6 +43,8 @@ class LoadingAndExportModelsTests(unittest.TestCase):
         self.assertEqual(1, issue_type.issue_type_id)
         self.assertEqual("OperatorIdIsNull", issue_type.code)
         self.assertEqual("req-1", request.request_id)
+        self.assertEqual(2, request.loaded_direct_trip_count)
+        self.assertEqual(1, request.loaded_matched_trip_count)
         self.assertEqual(200, request.status_code)
         self.assertEqual("issue-1", quality_issue.issue_id)
         self.assertEqual(1, quality_issue.issue_type_id)
@@ -86,6 +90,8 @@ class LoadingAndExportModelsTests(unittest.TestCase):
             num_entities=3,
             age_seconds=42,
             status_code=200,
+            loaded_direct_trip_count=2,
+            loaded_matched_trip_count=1,
         )
         issue_type = ExportIssueTypeRow(issue_type_id=1, code="OperatorIdIsNull")
         quality_issue = ExportQualityIssueRow(
@@ -101,6 +107,8 @@ class LoadingAndExportModelsTests(unittest.TestCase):
         self.assertEqual(20, stop_time.departure_delay_seconds)
         self.assertEqual("MATCHING", trip.realtime_assignment_method)
         self.assertEqual("req-1", request.request_id)
+        self.assertEqual(2, request.loaded_direct_trip_count)
+        self.assertEqual(1, request.loaded_matched_trip_count)
         self.assertEqual(1, issue_type.issue_type_id)
         self.assertEqual("issue-1", quality_issue.issue_id)
         self.assertEqual([], dataset.requests)

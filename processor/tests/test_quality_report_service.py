@@ -33,6 +33,8 @@ class QualityReportServiceTests(unittest.TestCase):
             pipeline=self.pipeline,
             timestamp=timestamp,
             num_entities=3,
+            loaded_direct_trip_count=2,
+            loaded_matched_trip_count=1,
             age_seconds=42,
             status_code=200,
         )
@@ -43,6 +45,8 @@ class QualityReportServiceTests(unittest.TestCase):
         self.assertEqual(self.pipeline.id, request.pipeline_id)
         self.assertEqual(timestamp, request.timestamp)
         self.assertEqual(3, request.num_entities)
+        self.assertEqual(2, request.loaded_direct_trip_count)
+        self.assertEqual(1, request.loaded_matched_trip_count)
         self.assertEqual(42, request.age_seconds)
         self.assertEqual(200, request.status_code)
         self.assertTrue(request.request_id)
