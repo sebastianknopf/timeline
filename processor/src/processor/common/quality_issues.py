@@ -21,6 +21,8 @@ class QualityIssue(IntEnum):
     NoAmbiguousNominalTripFound = 13
     AimedDepartureTimeBeforeArrivalTime = 14
     EstimatedDepatureTimeBeforeArrivalTime = 15
+    UnexpectedStopFound = 16
+    ExpectedStopMissing = 17
 
     @classmethod
     def from_code(cls, code: str) -> "QualityIssue":

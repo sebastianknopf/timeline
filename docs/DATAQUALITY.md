@@ -43,6 +43,8 @@ The consistency and data quality monitoring reports quality issues **one time pe
 | `NoAmbiguousNominalTripFound` | Multiple possible nominal entity candidates were found for this entity | 13 |
 | `AimedDepartureTimeBeforeArrivalTime` | The aimed departure timestamp of a stop time lays before the aimed arrival timestamp | 14 |
 | `EstimatedDepatureTimeBeforeArrivalTime` | The estimated departure timestamp of a stop time lays before the estimated arrival timestamp | 15 |
+| `UnexpectedStopFound` | An unexpected stop was found in the realtime data which is not part of the nominal trip | 16 |
+| `ExpectedStopMissing` | The expected stop was not contained in the realtime data **even if the realtime stop sequence was stated as complete stop sequence explicitly** | 17 |
 
 Please note, that the exact issues monitored and reported strongly depend on the realtime pipeline type, as not all data contain all information by definition. For example the `gtfsrt-tripupdates` realtime pipeline will not monitor the issue type `TripNotMonitored` or `TripPredictionInaccurate` as this information is simply not contained by the GTFS-RT data.
 

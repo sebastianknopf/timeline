@@ -54,6 +54,7 @@ class TripRecord:
     _t_scheduled_end_time: datetime | None = None
     _t_scheduled_start_stop_id: str | None = None
     _t_scheduled_end_stop_id: str | None = None
+    _t_is_complete_stop_sequence: bool = False
 
 
 @dataclass(frozen=True, slots=True)
