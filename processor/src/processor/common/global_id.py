@@ -15,8 +15,14 @@ class GlobalId:
         if input is None:
             return False
 
-        splitted: list[str] = input.split(":")
-        return len(splitted) >= 3 and not any([True if e.strip() == "" else False for e in splitted]) and splitted[0].isalpha()
+        parts: list[str] = input.split(":")
+        if len(parts) < 3:
+            return False
+
+        if not parts[0].isalpha():
+            return False
+
+        return all(part.strip() for part in parts)
     
     @staticmethod
     def level(input: str, level: int) -> str:

@@ -20,6 +20,12 @@ class GlobalIdTests(unittest.TestCase):
     def test_is_global_id_rejects_empty_segment(self) -> None:
         self.assertFalse(GlobalId.is_global_id("de::42"))
 
+    def test_is_global_id_rejects_empty_segment_in_later_position(self) -> None:
+        self.assertFalse(GlobalId.is_global_id("de:0815::42"))
+
+    def test_is_global_id_rejects_whitespace_only_segments(self) -> None:
+        self.assertFalse(GlobalId.is_global_id("de:0815: "))
+
     def test_is_global_id_rejects_non_alpha_namespace(self) -> None:
         self.assertFalse(GlobalId.is_global_id("d3:0815:42"))
 
