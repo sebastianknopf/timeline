@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import IntEnum
 
+from processor.common.quality_issues import QualityIssue
 import structlog
 
 from ..repository.intf_timeline_repository import TimelineRepositoryInterface
@@ -21,6 +23,12 @@ class RealtimeLoadingResult(IntEnum):
     NO_NOMINAL_TRIP_FOUND = 2
     NO_AMBIGUOUS_NOMINAL_TRIP_FOUND = 3
     INTERNAL_ERROR = 4
+
+
+@dataclass(frozen=True, slots=True)
+class RealtimeLoadingQualityIssue:
+    issue_type: QualityIssue
+    assessment_value: str | None = None
 
 
 class LoadingService:
@@ -53,6 +61,7 @@ class LoadingService:
         instance_id: str,
         trip: TripRecord,
         stop_times: list[StopTimeRecord],
+        issue_handler: Callable[[RealtimeLoadingQualityIssue], None] | None = None,
     ) -> RealtimeLoadingResult:
         if not stop_times:
             return RealtimeLoadingResult.INTERNAL_ERROR
@@ -87,6 +96,9 @@ class LoadingService:
                     trip_id=trip.trip_id,
                     operation_day_date=str(trip.operation_day_date),
                 )
+
+                if issue_handler is not None:
+                    issue_handler(RealtimeLoadingQualityIssue(issue_type=QualityIssue.NoNominalTripFound))
 
                 return RealtimeLoadingResult.NO_NOMINAL_TRIP_FOUND
             

@@ -53,9 +53,9 @@ Also be aware of the interpretation of the issue types. The interpretation is on
 ## Internal Architecture
 
 ### QualityReportService
-The `QualityReportService` offers all methods needed for logging the request basic measures and the quality issues. The service is meant to be used **on pipeline-run level** meaning that each instance is used in one pipeline run. Additionally, the service can be used by the loading service in order to report quality issues which are detected at loading / matching level at all.
+The `QualityReportService` offers all methods needed for logging the request basic measures and the quality issues. The service is meant to be used **on pipeline-run level** meaning that each instance is used in one pipeline run. However, some quality issues only become noticable when running the loading service, especially all issues regarding the integrity of a realtime trip. To keep the architecture clean and the ownership for the `QualityReportService` instance only at pipeline level, the method `load_realtime_trip_and_stop_times` has an optional parameter `issue_handler` which should be passed with a callback on pipeline level. See sample implementation below.
 
-It holds exactly one `RequestRecord` object (which is meant to cover the basic requests metrics) and many `QualityIssueRecords` for all quality issues detected during a pipeline run.
+The `QualityReportService` object holds exactly one `RequestRecord` object (which is meant to cover the basic requests metrics) and many `QualityIssueRecords` for all quality issues detected during a pipeline run.
 
 ### Implementation on Pipeline Level
 
@@ -72,46 +72,43 @@ async def execute(...) -> None:
 
         # to the pipeline stuff here and catch exceptions
 
-        # report each quality issue ON EVERY OCCURENCE
-        # if the same quality issues was already reported for the particular entity
-        # the unitifaction is done in the QualiyReportService
-        self.report_quality_issue(
-            instance=instance,
-            pipeline=pipeline,
-            timestamp=now_processor_tz,
-            entity_id=entity.id,
-            issue_type_id=QualityIssue.RouteIdNonGlobal,
-            assessment_value=route_id
-        )
-
-        # load the realtime data into database and catch the result
-        # quality issues occured during loading must be handled here!
-        result: RealtimeLoadingResult = await self._loading_service.load_realtime_trip_and_stop_times(
-            instance_id=instance.id,
-            trip=mapped_trip,
-            stop_times=mapped_stop_times,
-        )
-
-        if realtime_loading_result == RealtimeLoadingResult.SUCCESS_DIRECT:
-            loaded_direct_trip_count += 1
-        elif realtime_loading_result == RealtimeLoadingResult.SUCCESS_MATCHED:
-            loaded_matched_trip_count += 1
-        elif realtime_loading_result == RealtimeLoadingResult.NO_NOMINAL_TRIP_FOUND:
+        for entity in entities:
+            # report each quality issue ON EVERY OCCURENCE
+            # if the same quality issues was already reported for the particular entity
+            # the unitifaction is done in the QualiyReportService
             self.report_quality_issue(
                 instance=instance,
                 pipeline=pipeline,
                 timestamp=now_processor_tz,
                 entity_id=entity.id,
-                issue_type_id=QualityIssue.NoNominalTripFound
+                issue_type_id=QualityIssue.RouteIdNonGlobal,
+                assessment_value=route_id
             )
-        elif realtime_loading_result == RealtimeLoadingResult.NO_AMBIGUOUS_NOMINAL_TRIP_FOUND:
-            self.report_quality_issue(
-                instance=instance,
-                pipeline=pipeline,
-                timestamp=now_processor_tz,
-                entity_id=entity.id,
-                issue_type_id=QualityIssue.NoAmbiguousNominalTripFound
+
+            # define the callback for the loading service to report quality issues
+            def loading_issue_handler(issue: RealtimeLoadingQualityIssue) -> None:
+                self.report_quality_issue(
+                    instance=instance,
+                    pipeline=pipeline,
+                    timestamp=now_processor_tz,
+                    entity_id=entity.id,
+                    issue_type_id=issue.issue_type,
+                    assessment_value=issue.assessment_value,
+                )
+
+            # load the realtime data into database and catch the result
+            # quality issues occured during loading must be handled here!
+            result: RealtimeLoadingResult = await self._loading_service.load_realtime_trip_and_stop_times(
+                instance_id=instance.id,
+                trip=mapped_trip,
+                stop_times=mapped_stop_times,
+                issue_handler=loading_issue_handler
             )
+
+            if realtime_loading_result == RealtimeLoadingResult.SUCCESS_DIRECT:
+                loaded_direct_trip_count += 1
+            elif realtime_loading_result == RealtimeLoadingResult.SUCCESS_MATCHED:
+                loaded_matched_trip_count += 1
 
         # report the request result EXACTLY ONE TIME
         self.report_request(

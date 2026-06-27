@@ -9,7 +9,8 @@ try:
 except ImportError:
     import _test_bootstrap
 
-from processor.loading.loading_service import LoadingService
+from processor.common.quality_issues import QualityIssue
+from processor.loading.loading_service import LoadingService, RealtimeLoadingQualityIssue, RealtimeLoadingResult
 from processor.loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
 from processor.repository.intf_timeline_repository import TimelineRepositoryInterface
 
@@ -2133,6 +2134,45 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
         # No nominal trip record → fall back to stop-level max = 9.3.
         self.assertAlmostEqual(9.3, loaded.nom_total_distance)
         self.assertAlmostEqual(9.3, loaded.act_total_distance)
+
+    async def test_realtime_loading_callback_emits_no_nominal_trip_issue(self) -> None:
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        trip = TripRecord(
+            operation_day_date=date(2026, 6, 24),
+            trip_id="trip-callback",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+            schedule_relationship="SCHEDULED",
+        )
+        stop_times = [
+            StopTimeRecord(
+                operation_day_date=date(2026, 6, 24),
+                trip_id="trip-callback",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=datetime(2026, 6, 24, 8, 0, tzinfo=UTC),
+                nom_departure_time=datetime(2026, 6, 24, 8, 1, tzinfo=UTC),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            )
+        ]
+        reported_issues: list[RealtimeLoadingQualityIssue] = []
+
+        result = await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=stop_times,
+            issue_handler=reported_issues.append,
+        )
+
+        self.assertEqual(RealtimeLoadingResult.NO_NOMINAL_TRIP_FOUND, result)
+        self.assertEqual(1, len(reported_issues))
+        self.assertEqual(QualityIssue.NoNominalTripFound, reported_issues[0].issue_type)
+        self.assertIsNone(reported_issues[0].assessment_value)
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ import structlog
 
 from ..common.global_id import GlobalId
 from ..common.quality_issues import QualityIssue
-from ..loading.loading_service import LoadingService, RealtimeLoadingResult
+from ..loading.loading_service import LoadingService, RealtimeLoadingResult, RealtimeLoadingQualityIssue
 from ..loading.models import StopTimeRecord, TripRecord
 from ..mapping.intf_mapping_service import MappingServiceInterface
 from ..runtime_config import AuthenticationConfig, FilterEntryConfig, InstanceConfig, PipelineConfig
@@ -69,7 +69,7 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
             )
 
         pipeline_timezone: ZoneInfo = _safe_zoneinfo(pipeline.timezone)
-        
+
         try:
             payload = self._read_endpoint_payload(endpoint=pipeline.endpoint, authentication=pipeline.authentication)
             feed_message = self._decode_feed_message(payload)
@@ -198,6 +198,7 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                     stop_updates=stop_updates,
                     placeholder_nominal_time=now_processor_tz,
                 )
+
                 trip_record = self._build_trip_record(
                     operation_day=operation_day,
                     trip_id=trip_id,
@@ -213,32 +214,27 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                     stop_times=stop_time_records,
                 )
 
+                def loading_issue_handler(issue: RealtimeLoadingQualityIssue) -> None:
+                    self.report_quality_issue(
+                        instance=instance,
+                        pipeline=pipeline,
+                        timestamp=now_processor_tz,
+                        entity_id=entity.id,
+                        issue_type_id=issue.issue_type,
+                        assessment_value=issue.assessment_value,
+                    )
+
                 realtime_loading_result: RealtimeLoadingResult = await self._loading_service.load_realtime_trip_and_stop_times(
                     instance_id=instance.id,
                     trip=mapped_trip,
                     stop_times=mapped_stop_times,
+                    issue_handler=loading_issue_handler
                 )
 
                 if realtime_loading_result == RealtimeLoadingResult.SUCCESS_DIRECT:
                     loaded_direct_trip_count += 1
                 elif realtime_loading_result == RealtimeLoadingResult.SUCCESS_MATCHED:
                     loaded_matched_trip_count += 1
-                elif realtime_loading_result == RealtimeLoadingResult.NO_NOMINAL_TRIP_FOUND:
-                    self.report_quality_issue(
-                        instance=instance,
-                        pipeline=pipeline,
-                        timestamp=now_processor_tz,
-                        entity_id=entity.id,
-                        issue_type_id=QualityIssue.NoNominalTripFound
-                    )
-                elif realtime_loading_result == RealtimeLoadingResult.NO_AMBIGUOUS_NOMINAL_TRIP_FOUND:
-                    self.report_quality_issue(
-                        instance=instance,
-                        pipeline=pipeline,
-                        timestamp=now_processor_tz,
-                        entity_id=entity.id,
-                        issue_type_id=QualityIssue.NoAmbiguousNominalTripFound
-                    )
 
             LOGGER.info(
                 "gtfs_realtime_tripupdates_pipeline_loaded",

@@ -13,6 +13,7 @@ try:
 except ImportError:
     import _test_bootstrap
 
+from processor.common.quality_issues import QualityIssue
 from processor.exports.models import ExportDataSet, ExportQualityIssueRow, ExportRequestRow
 from processor.loading.loading_service import LoadingService
 from processor.loading.models import QualityIssueRecord, RequestRecord, RouteRecord, StopTimeRecord, TripRecord
@@ -284,6 +285,43 @@ class GtfsRtTripUpdatesPipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("request-1", dataset.requests[0].request_id)
         self.assertEqual(1, len(dataset.quality_issues))
         self.assertEqual("quality-issue-1", dataset.quality_issues[0].issue_id)
+
+    async def test_pipeline_reports_loading_callback_quality_issues(self) -> None:
+        pipeline = make_pipeline(endpoint="https://example.test/realtime")
+        instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+        payload = _build_feed_payload(
+            trip_id="GTFS:trip:callback",
+            route_id="GTFS:route:callback",
+            start_date="20260624",
+            stop_updates=(
+                _StopUpdateInput(
+                    stop_id="GTFS:stop:1",
+                    arrival_timestamp=datetime(2026, 6, 24, 8, 0, tzinfo=UTC),
+                    departure_timestamp=datetime(2026, 6, 24, 8, 1, tzinfo=UTC),
+                    stop_sequence=1,
+                ),
+            ),
+        )
+
+        mapping_service = MappingService()
+        mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+        repository = RecordingRepository()
+        loading_service = LoadingService(repository=repository)
+
+        gtfsrt_pipeline = InMemoryGtfsRtTripUpdatesPipeline(
+            payload=payload,
+            loading_service=loading_service,
+            mapping_service=mapping_service,
+        )
+
+        await gtfsrt_pipeline.execute(instance=instance, pipeline=pipeline)
+
+        self.assertEqual(1, len(repository.quality_issues))
+        stored_instance_id, stored_issue = repository.quality_issues[0]
+        self.assertEqual("demo", stored_instance_id)
+        self.assertEqual("trip-GTFS:trip:callback", stored_issue.entity_id)
+        self.assertEqual(QualityIssue.NoNominalTripFound.value, stored_issue.issue_type_id)
 
     async def test_pipeline_loads_mapped_realtime_trip_and_stop_updates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir_str:
