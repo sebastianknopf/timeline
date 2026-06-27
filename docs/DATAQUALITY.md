@@ -70,6 +70,59 @@ async def execute(...) -> None:
 
         # to the pipeline stuff here and catch exceptions
 
+        # report each quality issue ON EVERY OCCURENCE
+        # if the same quality issues was already reported for the particular entity
+        # the unitifaction is done in the QualiyReportService
+        self.report_quality_issue(
+            instance=instance,
+            pipeline=pipeline,
+            timestamp=now_processor_tz,
+            entity_id=entity.id,
+            issue_type_id=QualityIssue.RouteIdNonGlobal,
+            assessment_value=route_id
+        )
+
+        # load the realtime data into database and catch the result
+        # quality issues occured during loading must be handled here!
+        result: RealtimeLoadingResult = await self._loading_service.load_realtime_trip_and_stop_times(
+            instance_id=instance.id,
+            trip=mapped_trip,
+            stop_times=mapped_stop_times,
+        )
+
+        if realtime_loading_result == RealtimeLoadingResult.SUCCESS_DIRECT:
+            loaded_direct_trip_count += 1
+        elif realtime_loading_result == RealtimeLoadingResult.SUCCESS_MATCHED:
+            loaded_matched_trip_count += 1
+        elif realtime_loading_result == RealtimeLoadingResult.NO_NOMINAL_TRIP_FOUND:
+            self.report_quality_issue(
+                instance=instance,
+                pipeline=pipeline,
+                timestamp=now_processor_tz,
+                entity_id=entity.id,
+                issue_type_id=QualityIssue.NoNominalTripFound
+            )
+        elif realtime_loading_result == RealtimeLoadingResult.NO_AMBIGUOUS_NOMINAL_TRIP_FOUND:
+            self.report_quality_issue(
+                instance=instance,
+                pipeline=pipeline,
+                timestamp=now_processor_tz,
+                entity_id=entity.id,
+                issue_type_id=QualityIssue.NoAmbiguousNominalTripFound
+            )
+
+        # report the request result EXACTLY ONE TIME
+        self.report_request(
+            instance=instance,
+            pipeline=pipeline,
+            timestamp=now_processor_tz,
+            num_entities=trip_update_count,
+            loaded_direct_trip_count=loaded_direct_trip_count,
+            loaded_matched_trip_count=loaded_matched_trip_count,
+            age_seconds=(now_processor_tz - feed_timestamp_utc).total_seconds() if feed_timestamp_utc else 0,
+            status_code=200
+        )
+
     finally:
 
         # submit all collected quality reports here
