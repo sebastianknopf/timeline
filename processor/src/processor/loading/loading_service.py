@@ -124,7 +124,14 @@ class LoadingService:
             stop_times = [replace(st, trip_id=matched_trip_id) for st in stop_times]
 
         # 3. step: Apply nominal baseline to the realtime stop times, propagating delays forward where necessary.
-        normalized_input = self._apply_nominal_baseline(stop_times=stop_times, nominal_stop_times=nominal_stop_times)
+        # this is the stage where realtime and nominal stop sequences are compared and merged
+        normalized_input = self._apply_nominal_baseline(
+            stop_times=stop_times, 
+            nominal_stop_times=nominal_stop_times,
+            issue_handler=issue_handler,
+            realtime_is_complete_stop_sequence=trip._t_is_complete_stop_sequence
+        )
+
         if not normalized_input:
             LOGGER.debug(
                 "realtime_trip_discarded_empty_baseline_merge",
@@ -132,7 +139,7 @@ class LoadingService:
                 trip_id=trip.trip_id,
                 operation_day_date=str(trip.operation_day_date),
                 feed_stop_count=len(stop_times),
-                nominal_stop_count=len(nominal_stop_times),
+                nominal_stop_count=len(nominal_stop_times)
             )
 
             return RealtimeLoadingResult.INTERNAL_ERROR
@@ -217,12 +224,64 @@ class LoadingService:
         self,
         stop_times: list[StopTimeRecord],
         nominal_stop_times: list[StopTimeRecord],
+        issue_handler: Callable[[RealtimeLoadingQualityIssue], None] | None = None,
+        realtime_is_complete_stop_sequence: bool = False
     ) -> list[StopTimeRecord]:
+        """Apply the nominal baseline to the realtime stop times, propagating delays forward where necessary.
+        This method also checks for unexpected and missing stops in the realtime feed compared to the nominal baseline.
+        If an issue_handler is provided, it will be called with any detected quality issues.
+        
+        Args:
+            stop_times (list[StopTimeRecord]): The list of realtime stop times to be processed
+            nominal_stop_times (list[StopTimeRecord]): The list of nominal stop times to be used as a baseline
+            issue_handler (Callable[[RealtimeLoadingQualityIssue], None], optional): A callable that will be called with any detected quality issues. Defaults to None.
+            realtime_is_complete_stop_sequence (bool, optional): A flag indicating whether the realtime feed is expected to be a complete stop sequence. Defaults to False.
+
+        Returns:
+            list[StopTimeRecord]: The list of stop times after applying the nominal baseline.
+        """
+
         # Defensive guard: all trips reaching this point must have nominal data since
         # non-nominal trips are discarded earlier in load_realtime_trip_and_stop_times.
         if not nominal_stop_times:
             return stop_times
 
+        if issue_handler is not None:
+            # if the issue handler is set, check for unexpected and missing stops in the realtime feed compared to the nominal baseline
+
+            # check for unexpected stops ...
+            unexpected_realtime_stops = [
+                rt
+                for rt in stop_times
+                if (
+                    rt.schedule_relationship != "ADDED"
+                    and not any(
+                        ns.stop_id == rt.stop_id
+                        for ns in nominal_stop_times
+                    )
+                )
+            ]
+
+            for unexpected_stop in unexpected_realtime_stops:
+                issue_handler(RealtimeLoadingQualityIssue(issue_type=QualityIssue.UnexpectedStopFound, assessment_value=unexpected_stop.stop_id))
+            
+            # check for missing stops ...
+            # if the realtime feed is expected to be a complete stop sequence
+            if realtime_is_complete_stop_sequence:
+                missing_realtime_stops = [
+                    ns
+                    for ns in nominal_stop_times
+                    if not any(
+                        rt.stop_sequence == ns.stop_sequence
+                        and rt.stop_id == ns.stop_id
+                        for rt in stop_times
+                    )
+                ]
+
+                for missing_stop in missing_realtime_stops:
+                    issue_handler(RealtimeLoadingQualityIssue(issue_type=QualityIssue.ExpectedStopMissing, assessment_value=missing_stop.stop_id))
+
+        # apply the nominal baseline to the realtime stop times, propagating delays forward where necessary
         realtime_by_sequence: dict[int, StopTimeRecord] = {item.stop_sequence: item for item in stop_times}
         ordered_nominal = sorted(nominal_stop_times, key=lambda s: s.stop_sequence)
 
