@@ -166,56 +166,9 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             StopRecord(stop_id="B", stop_name="Stop B", stop_lat=48.2, stop_lon=8.8),
         ]
 
-        await service.load_nominal_stops(instance_id="demo", stops=stops)
+        await service.load_nominal_stops_batch(instance_id="demo", stops=stops)
 
         self.assertEqual([("upsert_nominal_stops", "demo", 2)], repository.calls)
-
-    async def test_nominal_trip_and_stop_times_are_delegated_to_repository(self) -> None:
-        repository = RecordingRepository()
-        service = LoadingService(repository=repository)
-
-        trip = TripRecord(
-            operation_day_date=date(2026, 5, 24),
-            trip_id="trip-1",
-            route_id="route-1",
-            operator_id="op-1",
-            operator_name="Operator 1",
-            nom_start_time=datetime(2026, 5, 24, 8, 0, tzinfo=UTC),
-            nom_end_time=datetime(2026, 5, 24, 9, 0, tzinfo=UTC),
-            act_start_time=None,
-            act_end_time=None,
-            nom_start_stop_id="A",
-            nom_end_stop_id="B",
-            nom_total_distance=15.5,
-            act_total_distance=None,
-        )
-        stop_times = [
-            StopTimeRecord(
-                operation_day_date=date(2026, 5, 24),
-                trip_id="trip-1",
-                stop_id="A",
-                distance_from_start=0.0,
-                nom_arrival_time=datetime(2026, 5, 24, 8, 0, tzinfo=UTC),
-                nom_departure_time=datetime(2026, 5, 24, 8, 1, tzinfo=UTC),
-                act_arrival_time=None,
-                act_departure_time=None,
-                stop_sequence=1,
-            )
-        ]
-
-        await service.load_nominal_trip_with_stop_times(
-            instance_id="demo",
-            trip=trip,
-            stop_times=stop_times,
-        )
-
-        self.assertEqual(
-            [
-                ("insert_nominal_trips", "demo", 1),
-                ("insert_nominal_stop_times", "demo", 1),
-            ],
-            repository.calls,
-        )
 
     async def test_nominal_trip_already_existing_preserves_realtime_fields(self) -> None:
         """Nominal import must never overwrite realtime fields on a trip already in the database.
@@ -292,11 +245,8 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             stop_sequence=1,
         )
 
-        await service.load_nominal_trip_with_stop_times(
-            instance_id="demo",
-            trip=nominal_trip_again,
-            stop_times=[nominal_stop_time_again],
-        )
+        await service.load_nominal_trips_batch(instance_id="demo", trips=[nominal_trip_again])
+        await service.load_nominal_stop_times_batch(instance_id="demo", stop_times=[nominal_stop_time_again])
 
         # The existing trip's realtime enrichment must be fully intact.
         self.assertEqual(1, len(repository.nominal_trips))

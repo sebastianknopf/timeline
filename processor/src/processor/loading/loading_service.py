@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timedelta
+from enum import IntEnum
 
 import structlog
 
@@ -10,6 +11,16 @@ from ..matching.matching_service import MatchingService
 from .models import QualityIssueRecord, RequestRecord, RouteRecord, StopRecord, StopTimeRecord, TripRecord
 
 LOGGER = structlog.get_logger(__name__)
+
+
+class RealtimeLoadingResult(IntEnum):
+    """Indicates the outcome of a realtime trip load attempt."""
+
+    SUCCESS_DIRECT = 0
+    SUCCESS_MATCHED = 1
+    NO_NOMINAL_TRIP_FOUND = 2
+    NO_AMBIGUOUS_NOMINAL_TRIP_FOUND = 3
+    INTERNAL_ERROR = 4
 
 
 class LoadingService:
@@ -37,50 +48,16 @@ class LoadingService:
             stop_times=stop_times,
         )
 
-    async def load_nominal_stops(self, instance_id: str, stops: list[StopRecord]) -> None:
-        await self.load_nominal_stops_batch(instance_id=instance_id, stops=stops)
-
-    async def load_nominal_trip_with_stop_times(
-        self,
-        instance_id: str,
-        trip: TripRecord,
-        stop_times: list[StopTimeRecord],
-    ) -> None:
-        await self._repository.insert_nominal_trip_with_stop_times(
-            instance_id=instance_id,
-            trip=trip,
-            stop_times=stop_times,
-        )
-
-    async def load_request(
-        self,
-        instance_id: str,
-        request: RequestRecord,
-    ) -> None:
-        await self._repository.insert_request(
-            instance_id=instance_id, 
-            request=request
-        )
-
-    async def load_quality_issues_batch(
-        self,
-        instance_id: str,
-        quality_issues: list[QualityIssueRecord],
-    ) -> None:
-        await self._repository.upsert_quality_issues(
-            instance_id=instance_id,
-            quality_issues=quality_issues,
-        )
-
     async def load_realtime_trip_and_stop_times(
         self,
         instance_id: str,
         trip: TripRecord,
         stop_times: list[StopTimeRecord],
-    ) -> None:
+    ) -> RealtimeLoadingResult:
         if not stop_times:
-            return
+            return RealtimeLoadingResult.INTERNAL_ERROR
 
+        # 1. step: Try getting nominal stop times by the trip ID.
         nominal_stop_times = await self._repository.get_nominal_stop_times_for_trip(
             instance_id=instance_id,
             operation_day_date=trip.operation_day_date,
@@ -89,6 +66,7 @@ class LoadingService:
 
         realtime_assignment_method: str | None = None
         
+        # 2. step: If no nominal stop times were found, try to match the trip to a nominal trip using MatchingService.
         if nominal_stop_times:
             realtime_assignment_method = "DIRECT"    
         else:
@@ -109,7 +87,8 @@ class LoadingService:
                     trip_id=trip.trip_id,
                     operation_day_date=str(trip.operation_day_date),
                 )
-                return
+
+                return RealtimeLoadingResult.NO_NOMINAL_TRIP_FOUND
             
             nominal_stop_times = await self._repository.get_nominal_stop_times_for_trip(
                 instance_id=instance_id,
@@ -125,12 +104,14 @@ class LoadingService:
                     matched_trip_id=matched_trip_id,
                     operation_day_date=str(trip.operation_day_date),
                 )
-                return
+
+                return RealtimeLoadingResult.INTERNAL_ERROR 
             
             # Remap to the nominal trip_id for consistent DB primary-key usage.
             trip = replace(trip, trip_id=matched_trip_id)
             stop_times = [replace(st, trip_id=matched_trip_id) for st in stop_times]
 
+        # 3. step: Apply nominal baseline to the realtime stop times, propagating delays forward where necessary.
         normalized_input = self._apply_nominal_baseline(stop_times=stop_times, nominal_stop_times=nominal_stop_times)
         if not normalized_input:
             LOGGER.debug(
@@ -141,11 +122,13 @@ class LoadingService:
                 feed_stop_count=len(stop_times),
                 nominal_stop_count=len(nominal_stop_times),
             )
-            return
 
+            return RealtimeLoadingResult.INTERNAL_ERROR
+
+        # 4. step: Normalize the realtime stop times to resolve absolute timestamps and delay seconds into a single canonical representation.
         normalized_stop_times = self._normalize_realtime_stop_times(normalized_input)
         if not normalized_stop_times:
-            return
+            return RealtimeLoadingResult.INTERNAL_ERROR
 
         explicit_count = sum(
             1 for s in normalized_input
@@ -167,6 +150,7 @@ class LoadingService:
             normalized_stop_count=len(normalized_stop_times),
         )
 
+        # 5. step: Derive trip-level fields from the normalized stop times and the nominal trip.
         nominal_trip = await self._repository.get_nominal_trip(
             instance_id=instance_id,
             operation_day_date=trip.operation_day_date,
@@ -191,6 +175,31 @@ class LoadingService:
             instance_id=instance_id,
             stop_times=normalized_stop_times,
         )
+
+        if realtime_assignment_method == "DIRECT":
+            return RealtimeLoadingResult.SUCCESS_DIRECT
+        else:
+            return RealtimeLoadingResult.SUCCESS_MATCHED
+
+    async def load_request(
+        self,
+        instance_id: str,
+        request: RequestRecord,
+    ) -> None:
+        await self._repository.insert_request(
+            instance_id=instance_id, 
+            request=request
+        )
+
+    async def load_quality_issues_batch(
+        self,
+        instance_id: str,
+        quality_issues: list[QualityIssueRecord],
+    ) -> None:
+        await self._repository.upsert_quality_issues(
+            instance_id=instance_id,
+            quality_issues=quality_issues,
+        )   
 
     def _apply_nominal_baseline(
         self,
