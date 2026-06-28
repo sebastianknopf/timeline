@@ -545,6 +545,18 @@
                 "value": 242
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Quelle"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 113
+              }
+            ]
           }
         ]
       },
@@ -578,7 +590,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\r\n  timestamp AS \"Letzter Zeitpunkt\",\r\n  entity_id AS \"Objekt-ID\",\r\n  issue_types.code AS \"Fehlertyp\",\r\n  assessment_value AS \"Überwachter Wert\"\r\nFROM\r\n  fact_quality_issues quality_issues\r\nINNER JOIN\r\n  dim_issue_types issue_types ON quality_issues.issue_type_id = issue_types.id\r\nWHERE\r\n  $__timeFilter(timestamp)\r\n  AND quality_issues.instance_id IN (${instance:sqlstring})\r\n  AND quality_issues.pipeline_id IN (${pipeline:sqlstring})\r\n  AND (\r\n    '${deliverer}' = ''\r\n    OR COALESCE(\r\n      quality_issues.concessionaire_id,\r\n      quality_issues.operator_id\r\n    ) = ANY(string_to_array('${deliverer}', ','))\r\n  )\r\nORDER BY\r\n  quality_issues.timestamp DESC",
+          "rawSql": "SELECT\r\n  timestamp AS \"Letzter Zeitpunkt\",\r\n  pipeline_id AS \"Quelle\",\r\n  entity_id AS \"Objekt-ID\",\r\n  issue_types.code AS \"Fehlertyp\",\r\n  assessment_value AS \"Überwachter Wert\"\r\nFROM\r\n  fact_quality_issues quality_issues\r\nINNER JOIN\r\n  dim_issue_types issue_types ON quality_issues.issue_type_id = issue_types.id\r\nWHERE\r\n  $__timeFilter(timestamp)\r\n  AND quality_issues.instance_id IN (${instance:sqlstring})\r\n  AND quality_issues.pipeline_id IN (${pipeline:sqlstring})\r\n  AND (\r\n    '${deliverer}' = ''\r\n    OR COALESCE(\r\n      quality_issues.concessionaire_id,\r\n      quality_issues.operator_id\r\n    ) = ANY(string_to_array('${deliverer}', ','))\r\n  )\r\nORDER BY\r\n  quality_issues.timestamp DESC",
           "refId": "A",
           "sql": {
             "columns": [
@@ -704,6 +716,6 @@
   "timezone": "browser",
   "title": "Datenqualität",
   "uid": "afptr7jyn4npcd",
-  "version": 31,
+  "version": 34,
   "weekStart": ""
 }
