@@ -42,6 +42,30 @@
         "type": "grafana-postgresql-datasource",
         "uid": "timeline-postgres"
       },
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 6,
+      "options": {
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "### **Wichtiger Hinweis**\n\nDieses Dashboard zeigt nicht die fertig aufbereiteten Echtzeitdaten basierend auf dem Soll-Fahrplan an, sondern bezieht sich auf die eingehenden Echtzeitdaten _*nach dem Mapping*_, aber _*bevor die Daten einer Fahrt im Soll-Fahrplan*_ zugeordnet werden. Aus diesem Grund stehen in diesem Dashboard andere Filter zur Verfügung. Zweck dieses Dashboards ist die Überwachung und das Qualitätsmonitoring der Echtzeitdatenquellen. Beispielsweise können mit diesem Dashboard mögliche Gründe für das Fehlen von Echtzeitinformationen in den anderen Dashboards identifiziert werden.",
+        "mode": "markdown"
+      },
+      "pluginVersion": "11.1.4",
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timeline-postgres"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -144,7 +168,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 0
+        "y": 3
       },
       "id": 2,
       "options": {
@@ -271,9 +295,9 @@
       },
       "gridPos": {
         "h": 9,
-        "w": 5,
+        "w": 19,
         "x": 0,
-        "y": 9
+        "y": 12
       },
       "id": 5,
       "options": {
@@ -369,6 +393,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
+            "fixedColor": "#C4162A",
             "mode": "palette-classic"
           },
           "custom": {
@@ -385,13 +410,13 @@
       "gridPos": {
         "h": 9,
         "w": 5,
-        "x": 5,
-        "y": 9
+        "x": 19,
+        "y": 12
       },
       "id": 3,
       "options": {
         "displayLabels": [
-          "percent"
+          "name"
         ],
         "legend": {
           "calcs": [],
@@ -400,7 +425,7 @@
           "showLegend": false,
           "values": []
         },
-        "pieType": "pie",
+        "pieType": "donut",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -480,13 +505,54 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Letzter Zeitpunkt"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              },
+              {
+                "id": "custom.width",
+                "value": 167
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Objekt-ID"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 359
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fehlertyp"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 242
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 9,
-        "w": 14,
-        "x": 10,
-        "y": 9
+        "w": 24,
+        "x": 0,
+        "y": 21
       },
       "id": 4,
       "options": {
@@ -499,7 +565,8 @@
           ],
           "show": false
         },
-        "showHeader": true
+        "showHeader": true,
+        "sortBy": []
       },
       "pluginVersion": "11.1.4",
       "targets": [
@@ -511,7 +578,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\r\n  timestamp AS \"Zeitstempel\",\r\n  entity_id AS \"Object-ID\",\r\n  issue_types.code AS \"Fehlertyp\",\r\n  assessment_value AS \"Überwachter Wert\"\r\nFROM\r\n  fact_quality_issues quality_issues\r\nINNER JOIN\r\n  dim_issue_types issue_types ON quality_issues.issue_type_id = issue_types.id\r\nWHERE\r\n  $__timeFilter(timestamp)\r\n  AND quality_issues.instance_id IN (${instance:sqlstring})\r\n  AND quality_issues.pipeline_id IN (${pipeline:sqlstring})\r\n  AND (\r\n    '${deliverer}' = ''\r\n    OR COALESCE(\r\n      quality_issues.concessionaire_id,\r\n      quality_issues.operator_id\r\n    ) = ANY(string_to_array('${deliverer}', ','))\r\n  )\r\nORDER BY\r\n  quality_issues.timestamp DESC",
+          "rawSql": "SELECT\r\n  timestamp AS \"Letzter Zeitpunkt\",\r\n  entity_id AS \"Objekt-ID\",\r\n  issue_types.code AS \"Fehlertyp\",\r\n  assessment_value AS \"Überwachter Wert\"\r\nFROM\r\n  fact_quality_issues quality_issues\r\nINNER JOIN\r\n  dim_issue_types issue_types ON quality_issues.issue_type_id = issue_types.id\r\nWHERE\r\n  $__timeFilter(timestamp)\r\n  AND quality_issues.instance_id IN (${instance:sqlstring})\r\n  AND quality_issues.pipeline_id IN (${pipeline:sqlstring})\r\n  AND (\r\n    '${deliverer}' = ''\r\n    OR COALESCE(\r\n      quality_issues.concessionaire_id,\r\n      quality_issues.operator_id\r\n    ) = ANY(string_to_array('${deliverer}', ','))\r\n  )\r\nORDER BY\r\n  quality_issues.timestamp DESC",
           "refId": "A",
           "sql": {
             "columns": [
@@ -537,7 +604,7 @@
       "type": "table"
     }
   ],
-  "refresh": "",
+  "refresh": "30s",
   "schemaVersion": 39,
   "tags": [
     "timeline",
@@ -573,7 +640,7 @@
       },
       {
         "current": {
-          "selected": true,
+          "selected": false,
           "text": [
             "All"
           ],
@@ -637,6 +704,6 @@
   "timezone": "browser",
   "title": "Datenqualität",
   "uid": "afptr7jyn4npcd",
-  "version": 15,
+  "version": 31,
   "weekStart": ""
 }
