@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 import structlog
 
 LOGGER = structlog.get_logger(__name__)
@@ -15,6 +17,12 @@ class GlobalId:
         if input is None:
             return False
 
+        # try first against the pattern, if configured in ENVs
+        pattern: str | None = os.getenv("PROCESSOR_GLOBAL_ID_PATTERN", None)
+        if pattern is not None and not re.fullmatch(pattern, input):
+            return False
+
+        # fallback is the internal implementation
         parts: list[str] = input.split(":")
         if len(parts) < 3:
             return False
