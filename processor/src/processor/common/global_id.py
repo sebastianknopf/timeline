@@ -22,7 +22,7 @@ class GlobalId:
         if not parts[0].isalpha():
             return False
 
-        return all(part.strip() for part in parts)
+        return all(part.strip() for part in parts[:3]) and all(True if " " not in part else False for part in parts)
     
     @staticmethod
     def level(input: str, level: int) -> str:

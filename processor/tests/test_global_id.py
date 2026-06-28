@@ -13,6 +13,16 @@ from processor.common.global_id import GlobalId
 class GlobalIdTests(unittest.TestCase):
     def test_is_global_id_returns_true_for_valid_input(self) -> None:
         self.assertTrue(GlobalId.is_global_id("de:0815:42"))
+    
+    def test_is_global_id_returns_true_for_valid_input_on_stop_level(self) -> None:
+        self.assertTrue(GlobalId.is_global_id("de:0815:42:0:1"))
+
+    def test_is_global_id_returns_true_for_valid_input_with_empty_stop_level(self) -> None:
+        self.assertTrue(GlobalId.is_global_id("de:0815:42::"))
+
+    def test_is_global_id_returns_true_for_valid_input_with_empty_part_behind_station_level(self) -> None:
+        self.assertTrue(GlobalId.is_global_id("de:0815:42::4711"))
+        self.assertTrue(GlobalId.is_global_id("de:0815:42::4711"))
 
     def test_is_global_id_rejects_too_few_segments(self) -> None:
         self.assertFalse(GlobalId.is_global_id("de:0815"))
@@ -25,6 +35,11 @@ class GlobalIdTests(unittest.TestCase):
 
     def test_is_global_id_rejects_whitespace_only_segments(self) -> None:
         self.assertFalse(GlobalId.is_global_id("de:0815: "))
+
+    def test_is_global_id_rejects_whitespace_in_any_segments(self) -> None:
+        self.assertFalse(GlobalId.is_global_id("de:0815: 42"))
+        self.assertFalse(GlobalId.is_global_id("de:0815: 42:55"))
+        self.assertFalse(GlobalId.is_global_id("de:0815:42: :55"))
 
     def test_is_global_id_rejects_non_alpha_namespace(self) -> None:
         self.assertFalse(GlobalId.is_global_id("d3:0815:42"))
