@@ -2254,7 +2254,8 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(RealtimeLoadingResult.NO_NOMINAL_TRIP_FOUND, result)
         self.assertEqual(1, len(reported_issues))
         self.assertEqual(QualityIssue.NoNominalTripFound, reported_issues[0].issue_type)
-        self.assertIsNone(reported_issues[0].assessment_value)
+        self.assertIsNotNone(reported_issues[0].assessment_value)
+        self.assertEqual(f"trip_id={trip.trip_id}, route_id={trip.route_id}, realtime_start_stop_id={trip._t_scheduled_start_stop_id}, realtime_end_stop_id={trip._t_scheduled_end_stop_id}, realtime_start_time={trip._t_scheduled_start_time.isoformat() if trip._t_scheduled_start_time is not None else None}, realtime_end_time={trip._t_scheduled_end_time.isoformat() if trip._t_scheduled_end_time is not None else None}", reported_issues[0].assessment_value)
 
 
 if __name__ == "__main__":
