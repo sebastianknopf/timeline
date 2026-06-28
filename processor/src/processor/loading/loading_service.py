@@ -101,7 +101,7 @@ class LoadingService:
                     issue_handler(
                         RealtimeLoadingQualityIssue(
                             issue_type=QualityIssue.NoNominalTripFound,
-                            assessment_value=f"trip_id={trip.trip_id}, realtime_start_stop_id={trip._t_scheduled_start_stop_id}, realtime_end_stop_id={trip._t_scheduled_end_stop_id}, realtime_start_time={trip._t_scheduled_start_time.isoformat()}, realtime_end_time={trip._t_scheduled_end_time.isoformat()}"
+                            assessment_value=f"trip_id={trip.trip_id}, route_id={trip.route_id}, realtime_start_stop_id={trip._t_scheduled_start_stop_id}, realtime_end_stop_id={trip._t_scheduled_end_stop_id}, realtime_start_time={trip._t_scheduled_start_time.isoformat() if trip._t_scheduled_start_time is not None else None}, realtime_end_time={trip._t_scheduled_end_time.isoformat() if trip._t_scheduled_end_time is not None else None}"
                         )
                     )
 
