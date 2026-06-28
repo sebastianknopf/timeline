@@ -96,50 +96,12 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
 
                 trip_update_count += 1
 
-                if not GlobalId.is_global_id(trip_id):
-                    self.report_quality_issue(
-                        instance=instance,
-                        pipeline=pipeline,
-                        timestamp=now_processor_tz,
-                        entity_id=entity.id,
-                        issue_type_id=QualityIssue.TripIdNonGlobal,
-                        assessment_value=trip_id
-                    )
-
-                if not trip_descriptor.HasField("start_date"):
-                    self.report_quality_issue(
-                        instance=instance,
-                        pipeline=pipeline,
-                        timestamp=now_processor_tz,
-                        entity_id=entity.id,
-                        issue_type_id=QualityIssue.OperationDayIsNull
-                    )
-
                 operation_day = _parse_service_date(
                     raw_value=(trip_descriptor.start_date or "").strip(),
                     fallback_date=now_processor_tz.date(),
                 )
 
                 route_id = (trip_descriptor.route_id or "").strip() or "UNKNOWN-ROUTE"
-
-                if route_id == "UNKNOWN-ROUTE":
-                    self.report_quality_issue(
-                        instance=instance,
-                        pipeline=pipeline,
-                        timestamp=now_processor_tz,
-                        entity_id=entity.id,
-                        issue_type_id=QualityIssue.RouteIdIsNull
-                    )
-
-                if route_id != "UNKNOWN-ROUTE" and not GlobalId.is_global_id(route_id):
-                    self.report_quality_issue(
-                        instance=instance,
-                        pipeline=pipeline,
-                        timestamp=now_processor_tz,
-                        entity_id=entity.id,
-                        issue_type_id=QualityIssue.RouteIdNonGlobal,
-                        assessment_value=route_id
-                    )
 
                 if route_filter:
                     if not trip_descriptor.route_id or not _route_matches_filter(route_id, route_filter):
@@ -178,20 +140,13 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                     continue
 
                 stop_updates = self._extract_stop_updates(
-                    instance=instance,
-                    pipeline=pipeline,
-                    entity_id=entity.id,
                     updates=trip_update.stop_time_update,
                     default_schedule_relationship=trip_schedule_relationship,
                     now_utc=now_utc,
-                    now_processor_tz=now_processor_tz,
                     trip_timestamp_utc=_timestamp_to_utc(trip_update.timestamp) if trip_update.timestamp else None,
                     feed_timestamp_utc=feed_timestamp_utc,
                 )
                 
-                if not stop_updates:
-                    continue
-
                 stop_time_records = self._build_stop_time_records(
                     operation_day=operation_day,
                     trip_id=trip_id,
@@ -207,6 +162,7 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                     scheduled_start_time=scheduled_start_time,
                 )
 
+                # apply mapping
                 mapped_trip, mapped_stop_times = await self._mapping_service.map_records_for_loading(
                     instance_id=instance.id,
                     pipeline_id=pipeline.id,
@@ -214,6 +170,21 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                     stop_times=stop_time_records,
                 )
 
+                if not mapped_stop_times:
+                    continue
+
+                # run quality monitoring
+                self._monitor_quality_issues(
+                    instance=instance,
+                    pipeline=pipeline,
+                    now_processor_tz=now_processor_tz,
+                    entity=entity,
+                    trip_record=trip_record,
+                    stop_time_records=stop_time_records
+                )
+
+                # finally load the entity into the database
+                # issue handler is a callback that will be called for each quality issue detected during loading
                 def loading_issue_handler(issue: RealtimeLoadingQualityIssue) -> None:
                     self.report_quality_issue(
                         instance=instance,
@@ -323,13 +294,9 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
 
     def _extract_stop_updates(
         self,
-        instance: InstanceConfig,
-        pipeline: PipelineConfig,
-        entity_id: str,
         updates: Iterable[gtfs_realtime_pb2.TripUpdate.StopTimeUpdate],
         default_schedule_relationship: str,
         now_utc: datetime,
-        now_processor_tz: datetime,
         trip_timestamp_utc: datetime | None,
         feed_timestamp_utc: datetime | None,
     ) -> list[_StopUpdate]:
@@ -339,16 +306,6 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
             stop_id = (update.stop_id or "").strip()
             if not stop_id:
                 continue
-
-            if not GlobalId.is_global_id(stop_id):
-                self.report_quality_issue(
-                        instance=instance,
-                        pipeline=pipeline,
-                        timestamp=now_processor_tz,
-                        entity_id=entity_id,
-                        issue_type_id=QualityIssue.StopIdNonGlobal,
-                        assessment_value=stop_id
-                    )
 
             stop_sequence = update.stop_sequence if update.HasField("stop_sequence") else index + 1
 
@@ -376,17 +333,6 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
             )
             has_arrival_delay = update.HasField("arrival") and update.arrival.HasField("delay")
             has_departure_delay = update.HasField("departure") and update.departure.HasField("delay")
-
-            if arrival_time is not None and departure_time is not None:
-                if departure_time < arrival_time:
-                    self.report_quality_issue(
-                        instance=instance,
-                        pipeline=pipeline,
-                        timestamp=now_processor_tz,
-                        entity_id=entity_id,
-                        issue_type_id=QualityIssue.EstimatedDepatureTimeBeforeArrivalTime,
-                        assessment_value=f"{departure_time.isoformat()} < {arrival_time.isoformat()}"
-                    )
 
             if arrival_time is None and departure_time is None and not has_arrival_delay and not has_departure_delay:
                 continue
@@ -417,6 +363,81 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
             )
 
         return results
+
+    def _monitor_quality_issues(
+        self,
+        instance: InstanceConfig,
+        pipeline: PipelineConfig,
+        now_processor_tz: datetime,
+        entity: any,
+        trip_record: TripRecord,
+        stop_time_records: list[StopTimeRecord]
+    ) -> None:
+        if not GlobalId.is_global_id(trip_record.trip_id):
+            self.report_quality_issue(
+                instance=instance,
+                pipeline=pipeline,
+                timestamp=now_processor_tz,
+                entity_id=entity.id,
+                issue_type_id=QualityIssue.TripIdNonGlobal,
+                assessment_value=trip_record.trip_id,
+            )
+
+        if not entity.HasField("trip_update") or not entity.trip_update.trip.HasField("start_date"):
+            self.report_quality_issue(
+                instance=instance,
+                pipeline=pipeline,
+                timestamp=now_processor_tz,
+                entity_id=entity.id,
+                issue_type_id=QualityIssue.OperationDayIsNull,
+            )
+
+        if trip_record.route_id == "UNKNOWN-ROUTE":
+            self.report_quality_issue(
+                instance=instance,
+                pipeline=pipeline,
+                timestamp=now_processor_tz,
+                entity_id=entity.id,
+                issue_type_id=QualityIssue.RouteIdIsNull,
+            )
+
+        if trip_record.route_id != "UNKNOWN-ROUTE" and not GlobalId.is_global_id(trip_record.route_id):
+            self.report_quality_issue(
+                instance=instance,
+                pipeline=pipeline,
+                timestamp=now_processor_tz,
+                entity_id=entity.id,
+                issue_type_id=QualityIssue.RouteIdNonGlobal,
+                assessment_value=trip_record.route_id,
+            )
+
+        for stop_time_record in stop_time_records:
+            if not GlobalId.is_global_id(stop_time_record.stop_id):
+                self.report_quality_issue(
+                    instance=instance,
+                    pipeline=pipeline,
+                    timestamp=now_processor_tz,
+                    entity_id=entity.id,
+                    issue_type_id=QualityIssue.StopIdNonGlobal,
+                    assessment_value=stop_time_record.stop_id,
+                )
+
+            if (
+                stop_time_record.act_arrival_time is not None
+                and stop_time_record.act_departure_time is not None
+                and stop_time_record.act_departure_time < stop_time_record.act_arrival_time
+            ):
+                self.report_quality_issue(
+                    instance=instance,
+                    pipeline=pipeline,
+                    timestamp=now_processor_tz,
+                    entity_id=entity.id,
+                    issue_type_id=QualityIssue.EstimatedDepatureTimeBeforeArrivalTime,
+                    assessment_value=(
+                        f"{stop_time_record.act_departure_time.isoformat()} < "
+                        f"{stop_time_record.act_arrival_time.isoformat()}"
+                    ),
+                )
 
     def _build_trip_record(
         self,

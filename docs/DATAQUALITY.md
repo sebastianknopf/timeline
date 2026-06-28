@@ -24,7 +24,9 @@ The technical and infrastructure monitoring reports metrics about **each request
 
 ## Consistency / Data Quality Monitoring
 
-The consistency and data quality monitoring reports quality issues **one time per operation day, entity and pipeline** by adding a flag for the corresponding realtime entity and the issue type which was found during data assessment. Following issue types are currently defined:
+The consistency and data quality monitoring reports quality issues **one time per operation day, entity and pipeline** by adding a flag for the corresponding realtime entity and the issue type which was found during data assessment. Quality issue monitoring is **always done after mapping** in order to monitor those values which might be adapted for the nominal data already. This way, we see only errors in data which are not mapped. If you want to see the full raw data quality issues, disable mapping for the particular pipeline. 
+
+Following issue types are currently defined:
 
 | Issue Type | Meaning | Technical ID |
 | ---- | ---- | ---- |
@@ -73,16 +75,24 @@ async def execute(...) -> None:
         # to the pipeline stuff here and catch exceptions
 
         for entity in entities:
-            # report each quality issue ON EVERY OCCURENCE
-            # if the same quality issues was already reported for the particular entity
-            # the unitifaction is done in the QualiyReportService
-            self.report_quality_issue(
+            
+            # apply mapping on constructed entities
+            mapped_trip, mapped_stop_times = await self._mapping_service.map_records_for_loading(
+                instance_id=instance.id,
+                pipeline_id=pipeline.id,
+                trip=trip_record,
+                stop_times=stop_time_records,
+            )
+            
+            # it is recommended to define a separate method which runs all quality checks
+            # at once AFTER mapping and BEFORE loading
+            self._monitor_quality_issues(
                 instance=instance,
                 pipeline=pipeline,
-                timestamp=now_processor_tz,
-                entity_id=entity.id,
-                issue_type_id=QualityIssue.RouteIdNonGlobal,
-                assessment_value=route_id
+                now_processor_tz=now_processor_tz,
+                entity=entity,
+                trip_record=trip_record,
+                stop_time_records=stop_time_records
             )
 
             # define the callback for the loading service to report quality issues
