@@ -35,6 +35,7 @@ Each pipeline object defines:
 - `cron`: cron expression used to schedule this pipeline
 - `endpoint`: source endpoint URL or address
 - `policy` (optional): execution policy for cron scheduling behavior. Allowed values are `schedule` and `startupAndSchedule`. Default is `schedule`.
+- `priority` (optional): numeric priority of this pipeline. Highest priority is 0. Important when running multiple pipelines at the same instance which may all affect the same nominal trip to decide which pipeline update is processed and which one is discarded
 - `timezone` (optional): timezone for which the data in the pipeline are interpreted. Defaults to `UTC`. **Mainly used by realtime pipelines!**
 - `authentication` (optional): authentication object when required by the endpoint
 - `parameters` (optional): object containing arbitrary pipeline-specific key/value parameters passed to the selected pipeline implementation

@@ -65,6 +65,7 @@ class PipelineConfig:
     policy: PipelinePolicy = "schedule"
     # Optional per-pipeline source timezone used for feed-local schedule fields.
     timezone: str = "UTC"
+    priority: int = 0
     authentication: AuthenticationConfig | None = None
     parameters: dict[str, object] = field(default_factory=dict)
     filter: FilterConfig | None = None

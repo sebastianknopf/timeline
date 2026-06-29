@@ -32,6 +32,7 @@ instance:
         policy: "schedule"
         # Optional high-frequency schedule: "*/10 * * * * *" (every 10 seconds)
         endpoint: "https://api.example.com/realtime"
+        priority: 0
         filter:
           operators:
             - match: "*-operator1"

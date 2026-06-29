@@ -137,12 +137,19 @@ class ConfigurationVerifier:
                 f"Pipeline '{pipeline_id}' has invalid cron expression '{cron_expression}'."
             )
 
+        policy = self._parse_policy(raw_pipeline.get("policy"), pipeline_id)
+
         endpoint = self._require_non_empty_str(
             raw_pipeline.get("endpoint"),
             f"pipeline.endpoint ({pipeline_id})",
         )
 
-        policy = self._parse_policy(raw_pipeline.get("policy"), pipeline_id)
+        priority: int = raw_pipeline.get("priority", 0)
+        if not isinstance(priority, int) or priority < 0:
+            raise ConfigurationError(
+                f"Pipeline '{pipeline_id}' priority must be an integer >= 0."
+            )
+        
         timezone_name = self._parse_timezone(raw_pipeline.get("timezone"), pipeline_id)
 
         parameters = raw_pipeline.get("parameters", {})
@@ -165,6 +172,7 @@ class ConfigurationVerifier:
             cron=cron_expression,
             endpoint=endpoint,
             policy=policy,
+            priority=priority,
             timezone=timezone_name,
             authentication=authentication,
             parameters=parameters,
