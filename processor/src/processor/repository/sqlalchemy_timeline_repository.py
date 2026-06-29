@@ -2,22 +2,33 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Callable, TypeVar
 
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from ..database.models import RouteDimension, StopDimension, StopTimeFact, TripDimension
+from ..database.models import (
+    IssueTypeDimension,
+    QualityIssueFact,
+    RequestFact,
+    RouteDimension,
+    StopDimension,
+    StopTimeFact,
+    TripDimension,
+)
 from ..exports.models import (
     ExportDataSet,
+    ExportIssueTypeRow,
+    ExportQualityIssueRow,
+    ExportRequestRow,
     ExportRouteRow,
     ExportStopRow,
     ExportStopTimeRow,
     ExportTripRow,
 )
-from ..loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
+from ..loading.models import QualityIssueRecord, RequestRecord, RouteRecord, StopRecord, StopTimeRecord, TripRecord
 from .intf_timeline_repository import TimelineRepositoryInterface
 
 
@@ -93,6 +104,20 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
     ) -> None:
         await asyncio.to_thread(self._upsert_realtime_stop_times_sync, instance_id, stop_times)
 
+    async def insert_request(
+        self,
+        instance_id: str,
+        request: RequestRecord,
+    ) -> None:
+        await asyncio.to_thread(self._insert_request_sync, instance_id, request)
+
+    async def upsert_quality_issues(
+        self,
+        instance_id: str,
+        quality_issues: list[QualityIssueRecord],
+    ) -> None:
+        await asyncio.to_thread(self._upsert_quality_issues_sync, instance_id, quality_issues)
+
     async def get_nominal_trip(
         self,
         instance_id: str,
@@ -128,7 +153,7 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
         scheduled_end_time: datetime | None,
         scheduled_start_stop_id: str | None,
         scheduled_end_stop_id: str | None
-    ) -> str | None:
+    ) -> list[str] | None:
         return await asyncio.to_thread(
             self._find_nominal_trip_id_by_properties_sync,
             instance_id,
@@ -159,6 +184,9 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
         from_date: date,
         to_date: date,
     ) -> ExportDataSet:
+        from_datetime = datetime.combine(from_date, datetime.min.time(), tzinfo=timezone.utc)
+        to_datetime = datetime.combine(to_date, datetime.min.time(), tzinfo=timezone.utc)
+
         with self._session_factory() as session:
             stop_time_orm = session.execute(
                 select(StopTimeFact)
@@ -226,6 +254,36 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
             else:
                 route_orm = []
 
+            request_orm = session.execute(
+                select(RequestFact)
+                .where(
+                    RequestFact.instance_id == instance_id,
+                    RequestFact.timestamp >= from_datetime,
+                    RequestFact.timestamp < to_datetime,
+                )
+                .order_by(RequestFact.timestamp, RequestFact.request_id)
+            ).scalars().all()
+
+            quality_issue_orm = session.execute(
+                select(QualityIssueFact)
+                .where(
+                    QualityIssueFact.instance_id == instance_id,
+                    QualityIssueFact.timestamp >= from_datetime,
+                    QualityIssueFact.timestamp < to_datetime,
+                )
+                .order_by(QualityIssueFact.timestamp, QualityIssueFact.issue_id)
+            ).scalars().all()
+
+            issue_type_ids = {row.issue_type_id for row in quality_issue_orm}
+            if issue_type_ids:
+                issue_type_orm = session.execute(
+                    select(IssueTypeDimension)
+                    .where(IssueTypeDimension.id.in_(issue_type_ids))
+                    .order_by(IssueTypeDimension.id)
+                ).scalars().all()
+            else:
+                issue_type_orm = []
+
             return ExportDataSet(
                 stop_times=[
                     ExportStopTimeRow(
@@ -283,7 +341,71 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                     )
                     for r in route_orm
                 ],
+                issue_types=[
+                    ExportIssueTypeRow(
+                        issue_type_id=row.id,
+                        code=row.code,
+                    )
+                    for row in issue_type_orm
+                ],
+                requests=[
+                    ExportRequestRow(
+                        request_id=row.request_id,
+                        pipeline_id=row.pipeline_id,
+                        timestamp=row.timestamp,
+                        num_entities=row.num_entities,
+                        age_seconds=row.age_seconds,
+                        status_code=row.status_code,
+                    )
+                    for row in request_orm
+                ],
+                quality_issues=[
+                    ExportQualityIssueRow(
+                        issue_id=row.issue_id,
+                        pipeline_id=row.pipeline_id,
+                        timestamp=row.timestamp,
+                        entity_id=row.entity_id,
+                        issue_type_id=row.issue_type_id,
+                        concessionaire_id=row.concessionaire_id,
+                        concessionaire_name=row.concessionaire_name,
+                        operator_id=row.operator_id,
+                        operator_name=row.operator_name,
+                        assessment_value=row.assessment_value,
+                        num_affected_values=row.num_affected_values,
+                    )
+                    for row in quality_issue_orm
+                ],
             )
+
+    def _upsert_nominal_stops_sync(self, instance_id: str, stops: list[StopRecord]) -> None:
+        if not stops:
+            return
+
+        table = StopDimension.__table__
+
+        with self._session_factory() as session:
+            with session.begin():
+                for stops_chunk in _chunked_records(stops, STOP_UPSERT_BATCH_SIZE):
+                    rows = [
+                        {
+                            "instance_id": instance_id,
+                            "stop_id": stop.stop_id,
+                            "stop_name": stop.stop_name,
+                            "stop_lat": stop.stop_lat,
+                            "stop_lon": stop.stop_lon,
+                        }
+                        for stop in stops_chunk
+                    ]
+                    insert_stmt = postgresql_insert(table).values(rows)
+                    upsert_stmt = insert_stmt.on_conflict_do_update(
+                        index_elements=["instance_id", "stop_id"],
+                        set_={
+                            "stop_name": insert_stmt.excluded.stop_name,
+                            "stop_lat": insert_stmt.excluded.stop_lat,
+                            "stop_lon": insert_stmt.excluded.stop_lon,
+                        },
+                    )
+                    session.execute(upsert_stmt)
 
     def _insert_nominal_routes_sync(self, instance_id: str, routes: list[RouteRecord]) -> None:
         if not routes:
@@ -315,36 +437,6 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                             "concessionaire_name": insert_stmt.excluded.concessionaire_name,
                             "operator_id": insert_stmt.excluded.operator_id,
                             "operator_name": insert_stmt.excluded.operator_name,
-                        },
-                    )
-                    session.execute(upsert_stmt)
-
-    def _upsert_nominal_stops_sync(self, instance_id: str, stops: list[StopRecord]) -> None:
-        if not stops:
-            return
-
-        table = StopDimension.__table__
-
-        with self._session_factory() as session:
-            with session.begin():
-                for stops_chunk in _chunked_records(stops, STOP_UPSERT_BATCH_SIZE):
-                    rows = [
-                        {
-                            "instance_id": instance_id,
-                            "stop_id": stop.stop_id,
-                            "stop_name": stop.stop_name,
-                            "stop_lat": stop.stop_lat,
-                            "stop_lon": stop.stop_lon,
-                        }
-                        for stop in stops_chunk
-                    ]
-                    insert_stmt = postgresql_insert(table).values(rows)
-                    upsert_stmt = insert_stmt.on_conflict_do_update(
-                        index_elements=["instance_id", "stop_id"],
-                        set_={
-                            "stop_name": insert_stmt.excluded.stop_name,
-                            "stop_lat": insert_stmt.excluded.stop_lat,
-                            "stop_lon": insert_stmt.excluded.stop_lon,
                         },
                     )
                     session.execute(upsert_stmt)
@@ -558,6 +650,74 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
                     )
                     session.execute(upsert_stmt)
 
+    def _insert_request_sync(self, instance_id: str, request: RequestRecord) -> None:
+        table = RequestFact.__table__
+
+        with self._session_factory() as session:
+            with session.begin():
+                session.execute(
+                    table.insert(),
+                    [{
+                        "instance_id": request.instance_id or instance_id,
+                        "request_id": request.request_id,
+                        "pipeline_id": request.pipeline_id,
+                        "timestamp": request.timestamp,
+                        "num_entities": request.num_entities,
+                        "loaded_direct_trip_count": request.loaded_direct_trip_count,
+                        "loaded_matched_trip_count": request.loaded_matched_trip_count,
+                        "age_seconds": request.age_seconds,
+                        "status_code": request.status_code,
+                    }],
+                )
+
+    def _upsert_quality_issues_sync(
+        self,
+        instance_id: str,
+        quality_issues: list[QualityIssueRecord],
+    ) -> None:
+        if not quality_issues:
+            return
+
+        table = QualityIssueFact.__table__
+
+        with self._session_factory() as session:
+            with session.begin():
+                for issues_chunk in _chunked_records(quality_issues, 5000):
+                    rows = [
+                        {
+                            "instance_id": issue.instance_id or instance_id,
+                            "issue_id": issue.issue_id,
+                            "pipeline_id": issue.pipeline_id,
+                            "timestamp": issue.timestamp,
+                            "entity_id": issue.entity_id,
+                            "issue_type_id": issue.issue_type_id,
+                            "concessionaire_id": issue.concessionaire_id,
+                            "concessionaire_name": issue.concessionaire_name,
+                            "operator_id": issue.operator_id,
+                            "operator_name": issue.operator_name,
+                            "assessment_value": issue.assessment_value,
+                            "num_affected_values": issue.num_affected_values,
+                        }
+                        for issue in issues_chunk
+                    ]
+                    insert_stmt = postgresql_insert(table).values(rows)
+                    upsert_stmt = insert_stmt.on_conflict_do_update(
+                        index_elements=["instance_id", "issue_id"],
+                        set_={
+                            "pipeline_id": insert_stmt.excluded.pipeline_id,
+                            "timestamp": insert_stmt.excluded.timestamp,
+                            "entity_id": insert_stmt.excluded.entity_id,
+                            "issue_type_id": insert_stmt.excluded.issue_type_id,
+                            "concessionaire_id": insert_stmt.excluded.concessionaire_id,
+                            "concessionaire_name": insert_stmt.excluded.concessionaire_name,
+                            "operator_id": insert_stmt.excluded.operator_id,
+                            "operator_name": insert_stmt.excluded.operator_name,
+                            "assessment_value": insert_stmt.excluded.assessment_value,
+                            "num_affected_values": insert_stmt.excluded.num_affected_values,
+                        },
+                    )
+                    session.execute(upsert_stmt)
+
     def _get_nominal_trip_sync(
         self,
         instance_id: str,
@@ -670,6 +830,207 @@ class SqlAlchemyTimelineRepository(TimelineRepositoryInterface):
             matches = list(session.execute(stmt).scalars())
 
         return matches if matches else None
+
+    def _get_export_dataset_sync(
+        self,
+        instance_id: str,
+        from_date: date,
+        to_date: date,
+    ) -> ExportDataSet:
+        from_datetime = datetime.combine(from_date, datetime.min.time(), tzinfo=timezone.utc)
+        to_datetime = datetime.combine(to_date, datetime.min.time(), tzinfo=timezone.utc)
+
+        with self._session_factory() as session:
+            stop_time_orm = session.execute(
+                select(StopTimeFact)
+                .where(
+                    StopTimeFact.instance_id == instance_id,
+                    StopTimeFact.operation_day_date >= from_date,
+                    StopTimeFact.operation_day_date < to_date,
+                )
+                .order_by(
+                    StopTimeFact.operation_day_date,
+                    StopTimeFact.trip_id,
+                    StopTimeFact.stop_sequence,
+                )
+            ).scalars().all()
+
+            trip_keys: set[tuple[date, str]] = {
+                (r.operation_day_date, r.trip_id) for r in stop_time_orm
+            }
+            stop_ids_from_facts: set[str] = {r.stop_id for r in stop_time_orm}
+
+            if trip_keys:
+                all_trip_orm = session.execute(
+                    select(TripDimension)
+                    .where(
+                        TripDimension.instance_id == instance_id,
+                        TripDimension.operation_day_date >= from_date,
+                        TripDimension.operation_day_date < to_date,
+                    )
+                    .order_by(TripDimension.operation_day_date, TripDimension.trip_id)
+                ).scalars().all()
+                trip_orm = [
+                    t for t in all_trip_orm if (t.operation_day_date, t.trip_id) in trip_keys
+                ]
+            else:
+                trip_orm = []
+
+            route_ids: set[str] = {t.route_id for t in trip_orm}
+            stop_ids_from_trips: set[str] = (
+                {t.nom_start_stop_id for t in trip_orm}
+                | {t.nom_end_stop_id for t in trip_orm}
+            )
+            all_stop_ids = stop_ids_from_facts | stop_ids_from_trips
+
+            if all_stop_ids:
+                stop_orm = session.execute(
+                    select(StopDimension)
+                    .where(
+                        StopDimension.instance_id == instance_id,
+                        StopDimension.stop_id.in_(all_stop_ids),
+                    )
+                    .order_by(StopDimension.stop_id)
+                ).scalars().all()
+            else:
+                stop_orm = []
+
+            if route_ids:
+                route_orm = session.execute(
+                    select(RouteDimension)
+                    .where(
+                        RouteDimension.instance_id == instance_id,
+                        RouteDimension.route_id.in_(route_ids),
+                    )
+                    .order_by(RouteDimension.route_id)
+                ).scalars().all()
+            else:
+                route_orm = []
+
+            request_orm = session.execute(
+                select(RequestFact)
+                .where(
+                    RequestFact.instance_id == instance_id,
+                    RequestFact.timestamp >= from_datetime,
+                    RequestFact.timestamp < to_datetime,
+                )
+                .order_by(RequestFact.timestamp, RequestFact.request_id)
+            ).scalars().all()
+
+            quality_issue_orm = session.execute(
+                select(QualityIssueFact)
+                .where(
+                    QualityIssueFact.instance_id == instance_id,
+                    QualityIssueFact.timestamp >= from_datetime,
+                    QualityIssueFact.timestamp < to_datetime,
+                )
+                .order_by(QualityIssueFact.timestamp, QualityIssueFact.issue_id)
+            ).scalars().all()
+
+            issue_type_ids = {row.issue_type_id for row in quality_issue_orm}
+            if issue_type_ids:
+                issue_type_orm = session.execute(
+                    select(IssueTypeDimension)
+                    .where(IssueTypeDimension.id.in_(issue_type_ids))
+                    .order_by(IssueTypeDimension.id)
+                ).scalars().all()
+            else:
+                issue_type_orm = []
+
+            return ExportDataSet(
+                stop_times=[
+                    ExportStopTimeRow(
+                        operation_day_date=r.operation_day_date,
+                        trip_id=r.trip_id,
+                        stop_id=r.stop_id,
+                        stop_sequence=r.stop_sequence,
+                        distance_from_start=r.distance_from_start,
+                        nom_arrival_time=r.nom_arrival_time,
+                        nom_departure_time=r.nom_departure_time,
+                        act_arrival_time=r.act_arrival_time,
+                        act_departure_time=r.act_departure_time,
+                        schedule_relationship=r.schedule_relationship,
+                    )
+                    for r in stop_time_orm
+                ],
+                trips=[
+                    ExportTripRow(
+                        operation_day_date=t.operation_day_date,
+                        trip_id=t.trip_id,
+                        route_id=t.route_id,
+                        concessionaire_id=t.concessionaire_id,
+                        concessionaire_name=t.concessionaire_name,
+                        operator_id=t.operator_id,
+                        operator_name=t.operator_name,
+                        nom_start_time=t.nom_start_time,
+                        nom_end_time=t.nom_end_time,
+                        act_start_time=t.act_start_time,
+                        act_end_time=t.act_end_time,
+                        nom_start_stop_id=t.nom_start_stop_id,
+                        nom_end_stop_id=t.nom_end_stop_id,
+                        nom_total_distance=t.nom_total_distance,
+                        act_total_distance=t.act_total_distance,
+                        schedule_relationship=t.schedule_relationship,
+                    )
+                    for t in trip_orm
+                ],
+                stops=[
+                    ExportStopRow(
+                        stop_id=s.stop_id,
+                        stop_name=s.stop_name,
+                        stop_lat=s.stop_lat,
+                        stop_lon=s.stop_lon,
+                    )
+                    for s in stop_orm
+                ],
+                routes=[
+                    ExportRouteRow(
+                        route_id=r.route_id,
+                        route_name=r.route_name,
+                        concessionaire_id=r.concessionaire_id,
+                        concessionaire_name=r.concessionaire_name,
+                        operator_id=r.operator_id,
+                        operator_name=r.operator_name,
+                    )
+                    for r in route_orm
+                ],
+                issue_types=[
+                    ExportIssueTypeRow(
+                        issue_type_id=row.id,
+                        code=row.code,
+                    )
+                    for row in issue_type_orm
+                ],
+                requests=[
+                    ExportRequestRow(
+                        request_id=row.request_id,
+                        pipeline_id=row.pipeline_id,
+                        timestamp=row.timestamp,
+                        num_entities=row.num_entities,
+                        loaded_direct_trip_count=row.loaded_direct_trip_count,
+                        loaded_matched_trip_count=row.loaded_matched_trip_count,
+                        age_seconds=row.age_seconds,
+                        status_code=row.status_code,
+                    )
+                    for row in request_orm
+                ],
+                quality_issues=[
+                    ExportQualityIssueRow(
+                        issue_id=row.issue_id,
+                        pipeline_id=row.pipeline_id,
+                        timestamp=row.timestamp,
+                        entity_id=row.entity_id,
+                        issue_type_id=row.issue_type_id,
+                        concessionaire_id=row.concessionaire_id,
+                        concessionaire_name=row.concessionaire_name,
+                        operator_id=row.operator_id,
+                        operator_name=row.operator_name,
+                        assessment_value=row.assessment_value,
+                        num_affected_values=row.num_affected_values,
+                    )
+                    for row in quality_issue_orm
+                ],
+            )
 
     def _trip_values(self, instance_id: str, trip: TripRecord) -> dict[str, object]:
         return {

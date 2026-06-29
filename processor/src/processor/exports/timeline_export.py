@@ -10,10 +10,19 @@ from pathlib import Path
 
 import structlog
 
+from ..repository import TimelineRepositoryInterface
 from ..runtime_config import ExportConfig, InstanceConfig
 from .base_export import ExportBase
-from .intf_export_repository import ExportRepositoryInterface
-from .models import ExportDataSet, ExportRouteRow, ExportStopRow, ExportStopTimeRow, ExportTripRow
+from .models import (
+    ExportDataSet,
+    ExportIssueTypeRow,
+    ExportQualityIssueRow,
+    ExportRequestRow,
+    ExportRouteRow,
+    ExportStopRow,
+    ExportStopTimeRow,
+    ExportTripRow,
+)
 
 LOGGER = structlog.get_logger(__name__)
 
@@ -30,6 +39,8 @@ _STOP_TIME_COLUMNS = [
     "act_arrival_time",
     "act_departure_time",
     "schedule_relationship",
+    "arrival_delay_seconds",
+    "departure_delay_seconds",
 ]
 
 _TRIP_COLUMNS = [
@@ -49,6 +60,7 @@ _TRIP_COLUMNS = [
     "nom_total_distance",
     "act_total_distance",
     "schedule_relationship",
+    "realtime_assignment_method",
 ]
 
 _STOP_COLUMNS = [
@@ -65,6 +77,33 @@ _ROUTE_COLUMNS = [
     "concessionaire_name",
     "operator_id",
     "operator_name",
+]
+
+_ISSUE_TYPE_COLUMNS = ["id", "code"]
+
+_REQUEST_COLUMNS = [
+    "request_id",
+    "pipeline_id",
+    "timestamp",
+    "num_entities",
+    "loaded_direct_trip_count",
+    "loaded_matched_trip_count",
+    "age_seconds",
+    "status_code",
+]
+
+_QUALITY_ISSUE_COLUMNS = [
+    "issue_id",
+    "pipeline_id",
+    "timestamp",
+    "entity_id",
+    "issue_type_id",
+    "concessionaire_id",
+    "concessionaire_name",
+    "operator_id",
+    "operator_name",
+    "assessment_value",
+    "num_affected_values",
 ]
 
 
@@ -97,6 +136,8 @@ def _stop_time_to_row(r: ExportStopTimeRow) -> list[object]:
         r.act_arrival_time,
         r.act_departure_time,
         r.schedule_relationship,
+        r.arrival_delay_seconds,
+        r.departure_delay_seconds,
     ]
 
 
@@ -118,6 +159,7 @@ def _trip_to_row(r: ExportTripRow) -> list[object]:
         r.nom_total_distance,
         r.act_total_distance,
         r.schedule_relationship,
+        r.realtime_assignment_method,
     ]
 
 
@@ -133,6 +175,39 @@ def _route_to_row(r: ExportRouteRow) -> list[object]:
         r.concessionaire_name,
         r.operator_id,
         r.operator_name,
+    ]
+
+
+def _issue_type_to_row(r: ExportIssueTypeRow) -> list[object]:
+    return [r.issue_type_id, r.code]
+
+
+def _request_to_row(r: ExportRequestRow) -> list[object]:
+    return [
+        r.request_id,
+        r.pipeline_id,
+        r.timestamp,
+        r.num_entities,
+        r.loaded_direct_trip_count,
+        r.loaded_matched_trip_count,
+        r.age_seconds,
+        r.status_code,
+    ]
+
+
+def _quality_issue_to_row(r: ExportQualityIssueRow) -> list[object]:
+    return [
+        r.issue_id,
+        r.pipeline_id,
+        r.timestamp,
+        r.entity_id,
+        r.issue_type_id,
+        r.concessionaire_id,
+        r.concessionaire_name,
+        r.operator_id,
+        r.operator_name,
+        r.assessment_value,
+        r.num_affected_values,
     ]
 
 
@@ -155,13 +230,25 @@ def _build_zip(dataset: ExportDataSet) -> bytes:
             "routes.txt",
             _build_csv(_ROUTE_COLUMNS, [_route_to_row(r) for r in dataset.routes]),
         )
+        zf.writestr(
+            "issue_types.txt",
+            _build_csv(_ISSUE_TYPE_COLUMNS, [_issue_type_to_row(r) for r in dataset.issue_types]),
+        )
+        zf.writestr(
+            "requests.txt",
+            _build_csv(_REQUEST_COLUMNS, [_request_to_row(r) for r in dataset.requests]),
+        )
+        zf.writestr(
+            "quality_issues.txt",
+            _build_csv(_QUALITY_ISSUE_COLUMNS, [_quality_issue_to_row(r) for r in dataset.quality_issues]),
+        )
     return buffer.getvalue()
 
 
 class TimelineExport(ExportBase):
     """Produces a ZIP archive of the timeline database for a configurable operation day period."""
 
-    def __init__(self, repository: ExportRepositoryInterface) -> None:
+    def __init__(self, repository: TimelineRepositoryInterface) -> None:
         self._repository = repository
 
     async def execute(
@@ -202,6 +289,9 @@ class TimelineExport(ExportBase):
             trip_count=len(dataset.trips),
             stop_count=len(dataset.stops),
             route_count=len(dataset.routes),
+            issue_type_count=len(dataset.issue_types),
+            request_count=len(dataset.requests),
+            quality_issue_count=len(dataset.quality_issues),
         )
 
     @staticmethod

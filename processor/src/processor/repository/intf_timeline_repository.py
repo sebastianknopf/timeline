@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from ..exports.models import ExportDataSet
-from ..loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
+
+if TYPE_CHECKING:
+    from ..loading.models import RequestRecord, QualityIssueRecord, RouteRecord, StopRecord, StopTimeRecord, TripRecord
 
 
 class TimelineRepositoryInterface(Protocol):
@@ -95,6 +97,20 @@ class TimelineRepositoryInterface(Protocol):
     ) -> None:
         """Upsert stop time rows when realtime information arrives."""
 
+    async def insert_request(
+        self,
+        instance_id: str,
+        request: RequestRecord,
+    ) -> None:
+        """Insert one request row for one instance without upsert semantics."""
+
+    async def upsert_quality_issues(
+        self,
+        instance_id: str,
+        quality_issues: list[QualityIssueRecord],
+    ) -> None:
+        """Upsert a batch of quality issue rows for one instance."""
+
     async def get_nominal_trip(
         self,
         instance_id: str,
@@ -151,8 +167,7 @@ class TimelineRepositoryInterface(Protocol):
         to_date: date,
     ) -> ExportDataSet:
         """Fetch timeline data for the given instance and half-open date interval [from_date, to_date).
-
-        Queries fact_stop_times for the date range, then collects the minimum consistent set of
-        referenced dim_trips, dim_stops, and dim_routes rows.  The instance_id column is not
+        
+        The instance_id column is not
         included in the returned row objects.
         """

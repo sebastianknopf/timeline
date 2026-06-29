@@ -13,8 +13,10 @@ try:
 except ImportError:
     import _test_bootstrap
 
+from processor.common.quality_issues import QualityIssue
+from processor.exports.models import ExportDataSet, ExportQualityIssueRow, ExportRequestRow
 from processor.loading.loading_service import LoadingService
-from processor.loading.models import RouteRecord, StopTimeRecord, TripRecord
+from processor.loading.models import QualityIssueRecord, RequestRecord, RouteRecord, StopTimeRecord, TripRecord
 from processor.mapping.mapping_service import MappingService
 from processor.pipelines.gtfsrt_tripupdates_pipeline import GtfsRtTripUpdatesPipeline
 from processor.runtime_config import FilterConfig, FilterEntryConfig, InstanceConfig, MappingConfig, PipelineConfig
@@ -25,6 +27,8 @@ class RecordingRepository:
         self.realtime_trips: list[TripRecord] = []
         self.realtime_stop_times: list[StopTimeRecord] = []
         self.nominal_stop_times: list[StopTimeRecord] = []
+        self.requests: list[tuple[str, RequestRecord]] = []
+        self.quality_issues: list[tuple[str, QualityIssueRecord]] = []
 
     async def upsert_nominal_stops(self, instance_id: str, stops: list[object]) -> None:
         return None
@@ -86,6 +90,16 @@ class RecordingRepository:
         # Pipeline-level tests use stop-level distances directly; no nominal trip record needed.
         return None
 
+    async def insert_request(self, instance_id: str, request: RequestRecord) -> None:
+        self.requests.append((instance_id, request))
+
+    async def upsert_quality_issues(
+        self,
+        instance_id: str,
+        quality_issues: list[QualityIssueRecord],
+    ) -> None:
+        self.quality_issues.extend((instance_id, issue) for issue in quality_issues)
+
     async def find_nominal_trip_id_by_properties(
         self,
         instance_id: str,
@@ -97,6 +111,53 @@ class RecordingRepository:
         scheduled_end_stop_id: str | None,
     ) -> list[str] | None:
         return None
+
+    async def get_export_dataset(
+        self,
+        instance_id: str,
+        from_date: date,
+        to_date: date,
+    ) -> ExportDataSet:
+        request_rows = [
+            request
+            for (stored_instance_id, request) in self.requests
+            if stored_instance_id == instance_id and from_date <= request.timestamp.date() < to_date
+        ]
+        quality_issue_rows = [
+            quality_issue
+            for (stored_instance_id, quality_issue) in self.quality_issues
+            if stored_instance_id == instance_id and from_date <= quality_issue.timestamp.date() < to_date
+        ]
+
+        return ExportDataSet(
+            requests=[
+                ExportRequestRow(
+                    request_id=request.request_id,
+                    pipeline_id=request.pipeline_id,
+                    timestamp=request.timestamp,
+                    num_entities=request.num_entities,
+                    age_seconds=request.age_seconds,
+                    status_code=request.status_code,
+                )
+                for request in request_rows
+            ],
+            quality_issues=[
+                ExportQualityIssueRow(
+                    issue_id=quality_issue.issue_id,
+                    pipeline_id=quality_issue.pipeline_id,
+                    timestamp=quality_issue.timestamp,
+                    entity_id=quality_issue.entity_id,
+                    issue_type_id=quality_issue.issue_type_id,
+                    concessionaire_id=quality_issue.concessionaire_id,
+                    concessionaire_name=quality_issue.concessionaire_name,
+                    operator_id=quality_issue.operator_id,
+                    operator_name=quality_issue.operator_name,
+                    assessment_value=quality_issue.assessment_value,
+                    num_affected_values=quality_issue.num_affected_values,
+                )
+                for quality_issue in quality_issue_rows
+            ],
+        )
 
 
 def make_pipeline(
@@ -139,6 +200,129 @@ class InMemoryGtfsRtTripUpdatesPipeline(GtfsRtTripUpdatesPipeline):
 
 
 class GtfsRtTripUpdatesPipelineTests(unittest.IsolatedAsyncioTestCase):
+    async def test_repository_smoke_inserts_requests_and_quality_issues(self) -> None:
+        repository = RecordingRepository()
+        request = RequestRecord(
+            instance_id="demo",
+            request_id="request-1",
+            pipeline_id="realtime-main",
+            timestamp=datetime(2026, 6, 24, 12, 0, tzinfo=UTC),
+            num_entities=3,
+            age_seconds=42,
+            status_code=200,
+        )
+        quality_issue = QualityIssueRecord(
+            instance_id="demo",
+            issue_id="quality-issue-1",
+            pipeline_id="realtime-main",
+            timestamp=datetime(2026, 6, 24, 12, 5, tzinfo=UTC),
+            entity_id="trip-1",
+            issue_type_id=1,
+            assessment_value="HIGH",
+            num_affected_values=1,
+        )
+
+        await repository.insert_request(instance_id="demo", request=request)
+        await repository.upsert_quality_issues(instance_id="demo", quality_issues=[quality_issue])
+
+        self.assertEqual([("demo", request)], repository.requests)
+        self.assertEqual([("demo", quality_issue)], repository.quality_issues)
+
+    async def test_repository_smoke_get_export_dataset_filters_by_instance_and_date(self) -> None:
+        repository = RecordingRepository()
+        in_range_request = RequestRecord(
+            instance_id="demo",
+            request_id="request-1",
+            pipeline_id="realtime-main",
+            timestamp=datetime(2026, 6, 24, 12, 0, tzinfo=UTC),
+            num_entities=3,
+            age_seconds=42,
+            status_code=200,
+        )
+        out_of_range_request = RequestRecord(
+            instance_id="demo",
+            request_id="request-2",
+            pipeline_id="realtime-main",
+            timestamp=datetime(2026, 6, 27, 12, 0, tzinfo=UTC),
+            num_entities=4,
+            age_seconds=1,
+            status_code=500,
+        )
+        in_range_issue = QualityIssueRecord(
+            instance_id="demo",
+            issue_id="quality-issue-1",
+            pipeline_id="realtime-main",
+            timestamp=datetime(2026, 6, 24, 12, 5, tzinfo=UTC),
+            entity_id="trip-1",
+            issue_type_id=1,
+            assessment_value="HIGH",
+            num_affected_values=1,
+        )
+        other_instance_issue = QualityIssueRecord(
+            instance_id="other",
+            issue_id="quality-issue-2",
+            pipeline_id="realtime-main",
+            timestamp=datetime(2026, 6, 24, 12, 10, tzinfo=UTC),
+            entity_id="trip-2",
+            issue_type_id=2,
+            assessment_value="LOW",
+            num_affected_values=1,
+        )
+
+        await repository.insert_request(instance_id="demo", request=in_range_request)
+        await repository.insert_request(instance_id="demo", request=out_of_range_request)
+        await repository.upsert_quality_issues(instance_id="demo", quality_issues=[in_range_issue])
+        await repository.upsert_quality_issues(instance_id="other", quality_issues=[other_instance_issue])
+
+        dataset = await repository.get_export_dataset(
+            instance_id="demo",
+            from_date=date(2026, 6, 24),
+            to_date=date(2026, 6, 26),
+        )
+
+        self.assertIsInstance(dataset, ExportDataSet)
+        self.assertEqual(1, len(dataset.requests))
+        self.assertEqual("request-1", dataset.requests[0].request_id)
+        self.assertEqual(1, len(dataset.quality_issues))
+        self.assertEqual("quality-issue-1", dataset.quality_issues[0].issue_id)
+
+    async def test_pipeline_reports_loading_callback_quality_issues(self) -> None:
+        pipeline = make_pipeline(endpoint="https://example.test/realtime")
+        instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+        payload = _build_feed_payload(
+            trip_id="GTFS:trip:callback",
+            route_id="GTFS:route:callback",
+            start_date="20260624",
+            stop_updates=(
+                _StopUpdateInput(
+                    stop_id="GTFS:stop:1",
+                    arrival_timestamp=datetime(2026, 6, 24, 8, 0, tzinfo=UTC),
+                    departure_timestamp=datetime(2026, 6, 24, 8, 1, tzinfo=UTC),
+                    stop_sequence=1,
+                ),
+            ),
+        )
+
+        mapping_service = MappingService()
+        mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+        repository = RecordingRepository()
+        loading_service = LoadingService(repository=repository)
+
+        gtfsrt_pipeline = InMemoryGtfsRtTripUpdatesPipeline(
+            payload=payload,
+            loading_service=loading_service,
+            mapping_service=mapping_service,
+        )
+
+        await gtfsrt_pipeline.execute(instance=instance, pipeline=pipeline)
+
+        self.assertEqual(1, len(repository.quality_issues))
+        stored_instance_id, stored_issue = repository.quality_issues[0]
+        self.assertEqual("demo", stored_instance_id)
+        self.assertEqual("trip-GTFS:trip:callback", stored_issue.entity_id)
+        self.assertEqual(QualityIssue.NoNominalTripFound.value, stored_issue.issue_type_id)
+
     async def test_pipeline_loads_mapped_realtime_trip_and_stop_updates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir_str:
             tmp_dir = Path(tmp_dir_str)

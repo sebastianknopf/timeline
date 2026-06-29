@@ -20,7 +20,15 @@ def _compiled_type(column_name: str, table_name: str) -> str:
 class DatabaseModelsTests(unittest.TestCase):
     def test_metadata_contains_documented_tables(self) -> None:
         self.assertEqual(
-            {"dim_stops", "dim_routes", "dim_trips", "fact_stop_times"},
+            {
+                "dim_stops",
+                "dim_routes",
+                "dim_trips",
+                "fact_stop_times",
+                "dim_issue_types",
+                "fact_requests",
+                "fact_quality_issues",
+            },
             set(Base.metadata.tables.keys()),
         )
 
@@ -185,6 +193,86 @@ class DatabaseModelsTests(unittest.TestCase):
                 ("instance_id", "stop_id"),
                 ("instance_id", "operation_day_date", "trip_id"),
             },
+            {tuple(constraint.column_keys) for constraint in table.foreign_key_constraints},
+        )
+
+    def test_dim_issue_types_matches_database_documentation(self) -> None:
+        table = Base.metadata.tables["dim_issue_types"]
+
+        expected_columns = {
+            "id": ("INTEGER", False),
+            "code": ("TEXT", False),
+        }
+
+        self.assertEqual(set(expected_columns.keys()), set(table.c.keys()))
+        for column_name, (expected_type, expected_nullable) in expected_columns.items():
+            self.assertEqual(expected_type, _compiled_type(column_name, "dim_issue_types"))
+            self.assertEqual(expected_nullable, table.c[column_name].nullable)
+
+        self.assertEqual(["id"], list(table.primary_key.columns.keys()))
+        self.assertEqual(set(), {tuple(index.columns.keys()) for index in table.indexes})
+        self.assertEqual(set(), {tuple(constraint.column_keys) for constraint in table.foreign_key_constraints})
+
+    def test_fact_requests_matches_database_documentation(self) -> None:
+        table = Base.metadata.tables["fact_requests"]
+
+        expected_columns = {
+            "instance_id": ("TEXT", False),
+            "request_id": ("TEXT", False),
+            "pipeline_id": ("TEXT", False),
+            "timestamp": ("TIMESTAMP WITH TIME ZONE", False),
+            "num_entities": ("INTEGER", False),
+            "loaded_direct_trip_count": ("INTEGER", False),
+            "loaded_matched_trip_count": ("INTEGER", False),
+            "age_seconds": ("INTEGER", False),
+            "status_code": ("INTEGER", False),
+        }
+
+        self.assertEqual(set(expected_columns.keys()), set(table.c.keys()))
+        for column_name, (expected_type, expected_nullable) in expected_columns.items():
+            self.assertEqual(expected_type, _compiled_type(column_name, "fact_requests"))
+            self.assertEqual(expected_nullable, table.c[column_name].nullable)
+
+        self.assertEqual(["instance_id", "request_id"], list(table.primary_key.columns.keys()))
+        self.assertEqual(
+            {("instance_id", "pipeline_id", "timestamp")},
+            {tuple(index.columns.keys()) for index in table.indexes},
+        )
+        self.assertEqual(set(), {tuple(constraint.column_keys) for constraint in table.foreign_key_constraints})
+
+    def test_fact_quality_issues_matches_database_documentation(self) -> None:
+        table = Base.metadata.tables["fact_quality_issues"]
+
+        expected_columns = {
+            "instance_id": ("TEXT", False),
+            "issue_id": ("TEXT", False),
+            "pipeline_id": ("TEXT", False),
+            "timestamp": ("TIMESTAMP WITH TIME ZONE", False),
+            "entity_id": ("TEXT", False),
+            "issue_type_id": ("INTEGER", False),
+            "concessionaire_id": ("TEXT", True),
+            "concessionaire_name": ("TEXT", True),
+            "operator_id": ("TEXT", True),
+            "operator_name": ("TEXT", True),
+            "assessment_value": ("TEXT", True),
+            "num_affected_values": ("INTEGER", False),
+        }
+
+        self.assertEqual(set(expected_columns.keys()), set(table.c.keys()))
+        for column_name, (expected_type, expected_nullable) in expected_columns.items():
+            self.assertEqual(expected_type, _compiled_type(column_name, "fact_quality_issues"))
+            self.assertEqual(expected_nullable, table.c[column_name].nullable)
+
+        self.assertEqual(["instance_id", "issue_id"], list(table.primary_key.columns.keys()))
+        self.assertEqual(
+            {
+                ("instance_id", "pipeline_id", "timestamp", "issue_type_id"),
+                ("instance_id", "pipeline_id", "concessionaire_id", "operator_id"),
+            },
+            {tuple(index.columns.keys()) for index in table.indexes},
+        )
+        self.assertEqual(
+            {("issue_type_id",)},
             {tuple(constraint.column_keys) for constraint in table.foreign_key_constraints},
         )
 

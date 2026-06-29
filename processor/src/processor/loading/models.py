@@ -54,6 +54,7 @@ class TripRecord:
     _t_scheduled_end_time: datetime | None = None
     _t_scheduled_start_stop_id: str | None = None
     _t_scheduled_end_stop_id: str | None = None
+    _t_is_complete_stop_sequence: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,3 +71,38 @@ class StopTimeRecord:
     stop_sequence: int = 0
     arrival_delay_seconds: int | None = None
     departure_delay_seconds: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class IssueTypeRecord:
+    issue_type_id: int
+    code: str
+
+
+@dataclass(frozen=True, slots=True)
+class RequestRecord:
+    instance_id: str
+    request_id: str
+    pipeline_id: str
+    timestamp: datetime
+    num_entities: int
+    loaded_direct_trip_count: int = 0
+    loaded_matched_trip_count: int = 0
+    age_seconds: int = 0
+    status_code: int = 200
+
+
+@dataclass(frozen=True, slots=True)
+class QualityIssueRecord:
+    instance_id: str
+    issue_id: str
+    pipeline_id: str
+    timestamp: datetime
+    entity_id: str
+    issue_type_id: int
+    concessionaire_id: str | None = None
+    concessionaire_name: str | None = None
+    operator_id: str | None = None
+    operator_name: str | None = None
+    assessment_value: str | None = None
+    num_affected_values: int = 1

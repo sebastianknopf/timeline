@@ -62,7 +62,7 @@ class MatchingService:
             return None
 
         if len(trip_ids) > 1:
-            LOGGER.debug(
+            LOGGER.warning(
                     "matching_service_unambiguous_matches_found",
                     instance_id=instance_id,
                     operation_day_date=trip.operation_day_date,

@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 9,
+  "id": 10,
   "links": [
     {
       "asDropdown": false,
@@ -42,7 +42,215 @@
         "type": "grafana-postgresql-datasource",
         "uid": "timeline-postgres"
       },
-      "description": "",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 6,
+      "options": {
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "### **Wichtiger Hinweis**\n\nDieses Dashboard zeigt nicht die fertig aufbereiteten Echtzeitdaten basierend auf dem Soll-Fahrplan an, sondern bezieht sich auf die eingehenden Echtzeitdaten _*nach dem Mapping*_, aber _*bevor die Daten einer Fahrt im Soll-Fahrplan*_ zugeordnet werden. Aus diesem Grund stehen in diesem Dashboard andere Filter zur Verfügung. Zweck dieses Dashboards ist die Überwachung und das Qualitätsmonitoring der Echtzeitdatenquellen. Beispielsweise können mit diesem Dashboard mögliche Gründe für das Fehlen von Echtzeitinformationen in den anderen Dashboards identifiziert werden.",
+        "mode": "markdown"
+      },
+      "pluginVersion": "11.1.4",
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timeline-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "noValue": "-",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Rückschauzeit"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: s"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Anz. Datensätze"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Zeitstempel"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 3
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timeline-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  SUM(num_entities) AS \"Anz. Datensätze\",\r\n  SUM(age_seconds) AS \"Rückschauzeit\",\r\n  \"timestamp\" AS \"Zeitstempel\"\r\nFROM\r\n  fact_requests requests\r\nWHERE\r\n  $__timeFilter(timestamp)\r\n  AND requests.instance_id IN (${instance:sqlstring})\r\n  AND requests.pipeline_id IN (${pipeline:sqlstring})\r\nGROUP BY\r\n  \"timestamp\"",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "alias": "\"Anz. Datensätze\"",
+                "name": "SUM",
+                "parameters": [
+                  {
+                    "name": "num_entities",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "alias": "\"Rückschauzeit\"",
+                "name": "SUM",
+                "parameters": [
+                  {
+                    "name": "age_seconds",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "alias": "\"Zeitstempel\"",
+                "parameters": [
+                  {
+                    "name": "\"timestamp\"",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "name": "\"timestamp\"",
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          },
+          "table": "fact_requests"
+        }
+      ],
+      "title": "Dateneingang",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timeline-postgres"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -80,75 +288,18 @@
                 "value": null
               }
             ]
-          }
+          },
+          "unit": "percent"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "DIRECT"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "green",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "unit",
-                "value": "suffix: %"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "MATCHING"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "orange",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "unit",
-                "value": "suffix: %"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "UNKNOWN"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#d1d1d1",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "unit",
-                "value": "suffix: %"
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 24,
+        "h": 9,
+        "w": 19,
         "x": 0,
-        "y": 0
+        "y": 12
       },
-      "id": 1,
+      "id": 5,
       "options": {
         "barRadius": 0,
         "barWidth": 0.85,
@@ -161,13 +312,13 @@
           "showLegend": true
         },
         "orientation": "auto",
-        "showValue": "never",
+        "showValue": "auto",
         "stacking": "normal",
         "tooltip": {
           "mode": "multi",
-          "sort": "asc"
+          "sort": "none"
         },
-        "xTickLabelRotation": -45,
+        "xTickLabelRotation": 0,
         "xTickLabelSpacing": 0
       },
       "targets": [
@@ -178,8 +329,268 @@
           },
           "editorMode": "code",
           "format": "table",
+          "hide": false,
           "rawQuery": true,
-          "rawSql": "SELECT\r\n  routes.route_name AS \"Linie\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          realtime_assignment_method = 'DIRECT'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"DIRECT\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          realtime_assignment_method = 'MATCHING'\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"MATCHING\",\r\n  ROUND(\r\n    (\r\n      COUNT(*) FILTER (\r\n        WHERE\r\n          realtime_assignment_method IS NULL\r\n      ) :: NUMERIC / COUNT(*) :: NUMERIC\r\n    ) * 100,\r\n    2\r\n  ) AS \"UNKNOWN\"\r\nFROM\r\n  dim_trips trips\r\n  INNER JOIN dim_routes routes ON routes.route_id = trips.route_id\r\nWHERE\r\n  operation_day_date BETWEEN '${__from:date:YYYY-MM-DD}' :: DATE\r\n  AND '${__to:date:YYYY-MM-DD}' :: DATE\r\n  AND trips.instance_id IN (${instance:sqlstring})\r\n  AND COALESCE(\r\n    trips.concessionaire_name,\r\n    routes.concessionaire_name\r\n  ) IN (${concessionaire:sqlstring})\r\n  AND routes.route_name IN (${route:sqlstring})\r\nGROUP BY\r\n  route_name\r\nORDER BY\r\n  regexp_replace(route_name, '\\d', '', 'g'),\r\n  NULLIF(\r\n    regexp_replace(route_name, '\\D', '', 'g'),\r\n    ''\r\n  ) :: INT;",
+          "rawSql": "SELECT\r\n  pipeline_id AS \"Quelle\",\r\n  ROUND(100.0 * MAX(loaded_direct_trip_count) / NULLIF(MAX(num_entities), 0), 2) AS \"DIRECT\",\r\n  ROUND(100.0 * MAX(loaded_matched_trip_count) / NULLIF(MAX(num_entities), 0), 2) AS \"MATCHING\"\r\nFROM\r\n  fact_requests requests\r\nWHERE\r\n  $__timeFilter(timestamp)\r\n  AND requests.instance_id IN (${instance:sqlstring})\r\n  AND requests.pipeline_id IN (${pipeline:sqlstring})\r\nGROUP BY\r\n  pipeline_id",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "alias": "\"Direct\"",
+                "name": "MAX",
+                "parameters": [
+                  {
+                    "name": "loaded_direct_trip_count",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "alias": "\"Matching\"",
+                "name": "MAX",
+                "parameters": [
+                  {
+                    "name": "loaded_matched_trip_count",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "alias": "\"Quelle\"",
+                "parameters": [
+                  {
+                    "name": "pipeline_id",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "name": "pipeline_id",
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          },
+          "table": "fact_requests"
+        }
+      ],
+      "title": "Echtzeitzuordnung",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timeline-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#C4162A",
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 5,
+        "x": 19,
+        "y": 12
+      },
+      "id": 3,
+      "options": {
+        "displayLabels": [
+          "name"
+        ],
+        "legend": {
+          "calcs": [],
+          "displayMode": "hidden",
+          "placement": "right",
+          "showLegend": false,
+          "values": []
+        },
+        "pieType": "donut",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timeline-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  issue_types.code AS \"Typ\",\r\n  COALESCE(\r\n    quality_issues.operator_id,\r\n    quality_issues.concessionaire_id\r\n  ) AS \"Lieferant\",\r\n  COUNT(quality_issues.issue_id) AS \"Anzahl\"\r\nFROM\r\n  fact_quality_issues quality_issues\r\n  INNER JOIN dim_issue_types issue_types ON quality_issues.issue_type_id = issue_types.id\r\nWHERE\r\n  $__timeFilter(timestamp)\r\n  AND quality_issues.instance_id IN (${instance:sqlstring})\r\n  AND quality_issues.pipeline_id IN (${pipeline:sqlstring})\r\n  AND (\r\n    '${deliverer}' = ''\r\n    OR COALESCE(\r\n      quality_issues.concessionaire_id,\r\n      quality_issues.operator_id\r\n    ) = ANY(string_to_array('${deliverer}', ','))\r\n  )\r\nGROUP BY\r\n  issue_types.code,\r\n  COALESCE(\r\n    quality_issues.operator_id,\r\n    quality_issues.concessionaire_id\r\n  )",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Fehlertypen",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "timeline-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Letzter Zeitpunkt"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              },
+              {
+                "id": "custom.width",
+                "value": 167
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Objekt-ID"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 359
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fehlertyp"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 242
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Quelle"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 113
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "id": 4,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "timeline-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  timestamp AS \"Letzter Zeitpunkt\",\r\n  pipeline_id AS \"Quelle\",\r\n  entity_id AS \"Objekt-ID\",\r\n  issue_types.code AS \"Fehlertyp\",\r\n  assessment_value AS \"Überwachter Wert\"\r\nFROM\r\n  fact_quality_issues quality_issues\r\nINNER JOIN\r\n  dim_issue_types issue_types ON quality_issues.issue_type_id = issue_types.id\r\nWHERE\r\n  $__timeFilter(timestamp)\r\n  AND quality_issues.instance_id IN (${instance:sqlstring})\r\n  AND quality_issues.pipeline_id IN (${pipeline:sqlstring})\r\n  AND (\r\n    '${deliverer}' = ''\r\n    OR COALESCE(\r\n      quality_issues.concessionaire_id,\r\n      quality_issues.operator_id\r\n    ) = ANY(string_to_array('${deliverer}', ','))\r\n  )\r\nORDER BY\r\n  quality_issues.timestamp DESC",
           "refId": "A",
           "sql": {
             "columns": [
@@ -198,13 +609,14 @@
             ],
             "limit": 50
           },
-          "table": "dim_trips"
+          "table": "fact_quality_issues"
         }
       ],
-      "title": "Echtzeitzuordnung nach Linie (Überwachte Fahrten)",
-      "type": "barchart"
+      "title": "Fehlerliste",
+      "type": "table"
     }
   ],
+  "refresh": "30s",
   "schemaVersion": 39,
   "tags": [
     "timeline",
@@ -240,7 +652,7 @@
       },
       {
         "current": {
-          "selected": true,
+          "selected": false,
           "text": [
             "All"
           ],
@@ -252,15 +664,14 @@
           "type": "grafana-postgresql-datasource",
           "uid": "timeline-postgres"
         },
-        "definition": "SELECT DISTINCT concessionaire_name FROM dim_trips WHERE concessionaire_name IS NOT NULL AND instance_id = ${instance:sqlstring}\nUNION\nSELECT DISTINCT concessionaire_name FROM dim_routes WHERE concessionaire_name IS NOT NULL AND instance_id = ${instance:sqlstring}",
-        "description": "",
+        "definition": "SELECT DISTINCT pipeline_id FROM fact_requests WHERE instance_id = ${instance:sqlstring};",
         "hide": 0,
         "includeAll": true,
-        "label": "Konzessionär",
+        "label": "Quelle",
         "multi": true,
-        "name": "concessionaire",
+        "name": "pipeline",
         "options": [],
-        "query": "SELECT DISTINCT concessionaire_name FROM dim_trips WHERE concessionaire_name IS NOT NULL AND instance_id = ${instance:sqlstring}\nUNION\nSELECT DISTINCT concessionaire_name FROM dim_routes WHERE concessionaire_name IS NOT NULL AND instance_id = ${instance:sqlstring}",
+        "query": "SELECT DISTINCT pipeline_id FROM fact_requests WHERE instance_id = ${instance:sqlstring};",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
@@ -269,7 +680,7 @@
       },
       {
         "current": {
-          "selected": true,
+          "selected": false,
           "text": [
             "All"
           ],
@@ -281,18 +692,18 @@
           "type": "grafana-postgresql-datasource",
           "uid": "timeline-postgres"
         },
-        "definition": "SELECT DISTINCT route_name FROM dim_routes WHERE instance_id = ${instance:sqlstring} AND concessionaire_name IN (${concessionaire:sqlstring})",
+        "definition": "SELECT DISTINCT concessionaire_id FROM fact_quality_issues WHERE concessionaire_id IS NOT NULL AND instance_id = ${instance:sqlstring}\nUNION\nSELECT DISTINCT operator_id FROM fact_quality_issues WHERE operator_id IS NOT NULL AND instance_id = ${instance:sqlstring}",
         "hide": 0,
         "includeAll": true,
-        "label": "Linie",
+        "label": "Datenlieferant",
         "multi": true,
-        "name": "route",
+        "name": "deliverer",
         "options": [],
-        "query": "SELECT DISTINCT route_name FROM dim_routes WHERE instance_id = ${instance:sqlstring} AND concessionaire_name IN (${concessionaire:sqlstring})",
+        "query": "SELECT DISTINCT concessionaire_id FROM fact_quality_issues WHERE concessionaire_id IS NOT NULL AND instance_id = ${instance:sqlstring}\nUNION\nSELECT DISTINCT operator_id FROM fact_quality_issues WHERE operator_id IS NOT NULL AND instance_id = ${instance:sqlstring}",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
-        "sort": 3,
+        "sort": 1,
         "type": "query"
       }
     ]
@@ -305,6 +716,6 @@
   "timezone": "browser",
   "title": "Datenqualität",
   "uid": "afptr7jyn4npcd",
-  "version": 11,
+  "version": 34,
   "weekStart": ""
 }

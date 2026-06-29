@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from .runtime_config import InstanceConfig, PipelineConfig
+from ..runtime_config import InstanceConfig, PipelineConfig
 
 
 class PipelineExecutorInterface(Protocol):

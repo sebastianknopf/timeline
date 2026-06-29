@@ -11,12 +11,25 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from google.transit import gtfs_realtime_pb2
 import structlog
 
-from ..loading.loading_service import LoadingService
+from ..common.global_id import GlobalId
+from ..common.quality_issues import QualityIssue
+from ..loading.loading_service import LoadingService, RealtimeLoadingResult, RealtimeLoadingQualityIssue
 from ..loading.models import StopTimeRecord, TripRecord
 from ..mapping.intf_mapping_service import MappingServiceInterface
 from ..runtime_config import AuthenticationConfig, FilterEntryConfig, InstanceConfig, PipelineConfig
+from .base_pipeline import RealtimePipelineBase
 
 LOGGER = structlog.get_logger(__name__)
+
+
+class HttpError(RuntimeError):
+    """Raised when an HTTP request to a GTFS realtime endpoint fails."""
+
+    def __init__(self, status_code: int, message: str | None = None) -> None:
+        super().__init__(self.message)
+
+        self.status_code = status_code
+        self.message = message or f"HTTP request failed with status code {status_code}"
 
 
 class GtfsRealtimePipelineError(RuntimeError):
@@ -35,13 +48,15 @@ class _StopUpdate:
     schedule_relationship: str
 
 
-class GtfsRtTripUpdatesPipeline:
+class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
     def __init__(
         self,
         loading_service: LoadingService,
         mapping_service: MappingServiceInterface,
         processor_timezone_name: str = "UTC",
     ) -> None:
+        super().__init__(loading_service=loading_service)
+
         self._loading_service = loading_service
         self._mapping_service = mapping_service
         self._processor_timezone_name = processor_timezone_name
@@ -54,131 +69,207 @@ class GtfsRtTripUpdatesPipeline:
             )
 
         pipeline_timezone: ZoneInfo = _safe_zoneinfo(pipeline.timezone)
-        
-        payload = self._read_endpoint_payload(endpoint=pipeline.endpoint, authentication=pipeline.authentication)
-        feed_message = self._decode_feed_message(payload)
 
-        now_utc = datetime.now(UTC)
-        now_processor_tz = now_utc.astimezone(self._processor_timezone)
-        feed_timestamp_utc = _timestamp_to_utc(feed_message.header.timestamp) if feed_message.header.timestamp else None
+        try:
+            payload = self._read_endpoint_payload(endpoint=pipeline.endpoint, authentication=pipeline.authentication)
+            feed_message = self._decode_feed_message(payload)
 
-        entity_count = 0
-        trip_update_count = 0
-        skipped_entities = 0
-        loaded_trip_count = 0
-        loaded_stop_time_count = 0
-        route_filter = pipeline.filter.routes if pipeline.filter is not None else ()
+            now_utc = datetime.now(UTC)
+            now_processor_tz = now_utc.astimezone(self._processor_timezone)
+            feed_timestamp_utc = _timestamp_to_utc(feed_message.header.timestamp) if feed_message.header.timestamp else None
 
-        for entity in feed_message.entity:
-            entity_count += 1
-            if not entity.HasField("trip_update"):
-                skipped_entities += 1
-                continue
+            trip_update_count = 0
+            loaded_direct_trip_count = 0
+            loaded_matched_trip_count = 0
+            loaded_stop_time_count = 0
+            route_filter = pipeline.filter.routes if pipeline.filter is not None else ()
 
-            trip_update = entity.trip_update
-            trip_descriptor = trip_update.trip
-            trip_id = (trip_descriptor.trip_id or "").strip()
-            if not trip_id:
-                skipped_entities += 1
-                continue
+            for entity in feed_message.entity:
+                if not entity.HasField("trip_update"):
+                    continue
 
-            trip_update_count += 1
+                trip_update = entity.trip_update
+                trip_descriptor = trip_update.trip
+                trip_id = (trip_descriptor.trip_id or "").strip()
+                if not trip_id:
+                    continue
 
-            operation_day = _parse_service_date(
-                raw_value=(trip_descriptor.start_date or "").strip(),
-                fallback_date=now_processor_tz.date(),
-            )
+                trip_update_count += 1
 
-            route_id = (trip_descriptor.route_id or "").strip() or "UNKNOWN-ROUTE"
-            if route_filter:
-                if not trip_descriptor.route_id or not _route_matches_filter(route_id, route_filter):
-                    skipped_entities += 1
+                operation_day = _parse_service_date(
+                    raw_value=(trip_descriptor.start_date or "").strip(),
+                    fallback_date=now_processor_tz.date(),
+                )
+
+                route_id = (trip_descriptor.route_id or "").strip() or "UNKNOWN-ROUTE"
+
+                if route_filter:
+                    if not trip_descriptor.route_id or not _route_matches_filter(route_id, route_filter):
+                        LOGGER.debug(
+                            "realtime_trip_discarded_by_route_filter",
+                            instance_id=instance.id,
+                            pipeline_id=pipeline.id,
+                            trip_id=trip_id,
+                            route_id=route_id,
+                        )
+                        continue
+
+                scheduled_start_time: datetime | None = _parse_gtfs_time(
+                    raw_value=(trip_descriptor.start_time or "").strip(),
+                    operation_day=operation_day,
+                    source_timezone=pipeline_timezone,
+                    target_timezone=self._processor_timezone
+                )
+
+                trip_schedule_relationship = _enum_name(
+                    enum_descriptor=gtfs_realtime_pb2.TripDescriptor.ScheduleRelationship,
+                    value=trip_descriptor.schedule_relationship,
+                    fallback="UNKNOWN",
+                )
+
+                if trip_schedule_relationship == "ADDED":
                     LOGGER.debug(
-                        "realtime_trip_discarded_by_route_filter",
+                        "realtime_trip_discarded_added_schedule_relationship",
                         instance_id=instance.id,
                         pipeline_id=pipeline.id,
                         trip_id=trip_id,
                         route_id=route_id,
+                        operation_day_date=str(operation_day),
                     )
+
                     continue
 
-            scheduled_start_time: datetime | None = _parse_gtfs_time(
-                raw_value=(trip_descriptor.start_time or "").strip(),
-                operation_day=operation_day,
-                source_timezone=pipeline_timezone,
-                target_timezone=self._processor_timezone
-            )
+                stop_updates = self._extract_stop_updates(
+                    updates=trip_update.stop_time_update,
+                    default_schedule_relationship=trip_schedule_relationship,
+                    now_utc=now_utc,
+                    trip_timestamp_utc=_timestamp_to_utc(trip_update.timestamp) if trip_update.timestamp else None,
+                    feed_timestamp_utc=feed_timestamp_utc,
+                )
+                
+                stop_time_records = self._build_stop_time_records(
+                    operation_day=operation_day,
+                    trip_id=trip_id,
+                    stop_updates=stop_updates,
+                    placeholder_nominal_time=now_processor_tz,
+                )
 
-            trip_schedule_relationship = _enum_name(
-                enum_descriptor=gtfs_realtime_pb2.TripDescriptor.ScheduleRelationship,
-                value=trip_descriptor.schedule_relationship,
-                fallback="UNKNOWN",
-            )
-
-            if trip_schedule_relationship == "ADDED":
-                LOGGER.debug(
-                    "realtime_trip_discarded_added_schedule_relationship",
-                    instance_id=instance.id,
-                    pipeline_id=pipeline.id,
+                trip_record = self._build_trip_record(
+                    operation_day=operation_day,
                     trip_id=trip_id,
                     route_id=route_id,
-                    operation_day_date=str(operation_day),
+                    schedule_relationship=trip_schedule_relationship,
+                    scheduled_start_time=scheduled_start_time,
                 )
-                skipped_entities += 1
-                continue
 
-            stop_updates = self._extract_stop_updates(
-                updates=trip_update.stop_time_update,
-                default_schedule_relationship=trip_schedule_relationship,
-                now_utc=now_utc,
-                trip_timestamp_utc=_timestamp_to_utc(trip_update.timestamp) if trip_update.timestamp else None,
-                feed_timestamp_utc=feed_timestamp_utc,
-            )
-            
-            if not stop_updates:
-                continue
+                # apply mapping
+                mapped_trip, mapped_stop_times = await self._mapping_service.map_records_for_loading(
+                    instance_id=instance.id,
+                    pipeline_id=pipeline.id,
+                    trip=trip_record,
+                    stop_times=stop_time_records,
+                )
 
-            stop_time_records = self._build_stop_time_records(
-                operation_day=operation_day,
-                trip_id=trip_id,
-                stop_updates=stop_updates,
-                placeholder_nominal_time=now_processor_tz,
-            )
-            trip_record = self._build_trip_record(
-                operation_day=operation_day,
-                trip_id=trip_id,
-                route_id=route_id,
-                schedule_relationship=trip_schedule_relationship,
-                scheduled_start_time=scheduled_start_time,
-            )
+                if not mapped_stop_times:
+                    continue
 
-            mapped_trip, mapped_stop_times = await self._mapping_service.map_records_for_loading(
+                # run quality monitoring
+                self._monitor_quality_issues(
+                    instance=instance,
+                    pipeline=pipeline,
+                    now_processor_tz=now_processor_tz,
+                    entity=entity,
+                    trip_record=trip_record,
+                    stop_time_records=stop_time_records
+                )
+
+                # finally load the entity into the database
+                # issue handler is a callback that will be called for each quality issue detected during loading
+                def loading_issue_handler(issue: RealtimeLoadingQualityIssue) -> None:
+                    self.report_quality_issue(
+                        instance=instance,
+                        pipeline=pipeline,
+                        timestamp=now_processor_tz,
+                        entity_id=entity.id,
+                        issue_type_id=issue.issue_type,
+                        assessment_value=issue.assessment_value,
+                    )
+
+                realtime_loading_result: RealtimeLoadingResult = await self._loading_service.load_realtime_trip_and_stop_times(
+                    instance_id=instance.id,
+                    trip=mapped_trip,
+                    stop_times=mapped_stop_times,
+                    issue_handler=loading_issue_handler
+                )
+
+                if realtime_loading_result == RealtimeLoadingResult.SUCCESS_DIRECT:
+                    loaded_direct_trip_count += 1
+                elif realtime_loading_result == RealtimeLoadingResult.SUCCESS_MATCHED:
+                    loaded_matched_trip_count += 1
+
+            LOGGER.info(
+                "gtfs_realtime_tripupdates_pipeline_loaded",
                 instance_id=instance.id,
                 pipeline_id=pipeline.id,
-                trip=trip_record,
-                stop_times=stop_time_records,
+                processor_timezone=self._processor_timezone_name,
+                num_entities=trip_update_count,
+                loaded_direct_trip_count=loaded_direct_trip_count,
+                loaded_matched_trip_count=loaded_matched_trip_count,
+                loaded_stop_time_count=loaded_stop_time_count
             )
 
-            await self._loading_service.load_realtime_trip_and_stop_times(
+            self.report_request(
+                instance=instance,
+                pipeline=pipeline,
+                timestamp=now_processor_tz,
+                num_entities=trip_update_count,
+                loaded_direct_trip_count=loaded_direct_trip_count,
+                loaded_matched_trip_count=loaded_matched_trip_count,
+                age_seconds=(now_processor_tz - feed_timestamp_utc).total_seconds() if feed_timestamp_utc else 0,
+                status_code=200
+            )
+
+        except HttpError as http_exc:
+            LOGGER.exception(
+                "gtfs_realtime_tripupdates_pipeline_http_error",
                 instance_id=instance.id,
-                trip=mapped_trip,
-                stop_times=mapped_stop_times,
+                pipeline_id=pipeline.id,
+                processor_timezone=self._processor_timezone_name,
+                status_code=http_exc.status_code,
+                error=str(http_exc),
             )
 
-            loaded_trip_count += 1
-            loaded_stop_time_count += len(mapped_stop_times)
+            self.report_request(
+                instance=instance,
+                pipeline=pipeline,
+                timestamp=datetime.now(self._processor_timezone),
+                num_entities=0,
+                age_seconds=0,
+                status_code=http_exc.status_code
+            )
 
-        LOGGER.info(
-            "gtfs_realtime_tripupdates_pipeline_loaded",
-            instance_id=instance.id,
-            pipeline_id=pipeline.id,
-            processor_timezone=self._processor_timezone_name,
-            entity_count=entity_count,
-            trip_update_count=trip_update_count,
-            skipped_entity_count=skipped_entities,
-            loaded_trip_count=loaded_trip_count,
-            loaded_stop_time_count=loaded_stop_time_count,
-        )
+        except Exception as exc:
+            LOGGER.exception(
+                "gtfs_realtime_tripupdates_pipeline_error",
+                instance_id=instance.id,
+                pipeline_id=pipeline.id,
+                processor_timezone=self._processor_timezone_name,
+                error=str(exc),
+            )
+            
+            self.report_request(
+                instance=instance,
+                pipeline=pipeline,
+                timestamp=datetime.now(self._processor_timezone),
+                num_entities=0,
+                age_seconds=0,
+                status_code=0
+            )
+
+        finally:
+
+            # submit data quality report independent of success or failure of the realtime processing
+            await self.submit_quality_report(instance=instance)
 
     def _read_endpoint_payload(self, endpoint: str, authentication: AuthenticationConfig | None) -> bytes:
         request = Request(endpoint)
@@ -186,6 +277,11 @@ class GtfsRtTripUpdatesPipeline:
             request.add_header(key, value)
 
         with urlopen(request, timeout=30) as response:
+            status_code: int = response.status
+
+            if status_code != 200:
+                raise HttpError(status_code, f"HTTP request to {endpoint} failed with status code {status_code}")
+            
             return response.read()
 
     def _decode_feed_message(self, payload: bytes) -> gtfs_realtime_pb2.FeedMessage:
@@ -267,6 +363,81 @@ class GtfsRtTripUpdatesPipeline:
             )
 
         return results
+
+    def _monitor_quality_issues(
+        self,
+        instance: InstanceConfig,
+        pipeline: PipelineConfig,
+        now_processor_tz: datetime,
+        entity: any,
+        trip_record: TripRecord,
+        stop_time_records: list[StopTimeRecord]
+    ) -> None:
+        if not GlobalId.is_global_id(trip_record.trip_id):
+            self.report_quality_issue(
+                instance=instance,
+                pipeline=pipeline,
+                timestamp=now_processor_tz,
+                entity_id=entity.id,
+                issue_type_id=QualityIssue.TripIdNonGlobal,
+                assessment_value=trip_record.trip_id,
+            )
+
+        if not entity.HasField("trip_update") or not entity.trip_update.trip.HasField("start_date"):
+            self.report_quality_issue(
+                instance=instance,
+                pipeline=pipeline,
+                timestamp=now_processor_tz,
+                entity_id=entity.id,
+                issue_type_id=QualityIssue.OperationDayIsNull,
+            )
+
+        if trip_record.route_id == "UNKNOWN-ROUTE":
+            self.report_quality_issue(
+                instance=instance,
+                pipeline=pipeline,
+                timestamp=now_processor_tz,
+                entity_id=entity.id,
+                issue_type_id=QualityIssue.RouteIdIsNull,
+            )
+
+        if trip_record.route_id != "UNKNOWN-ROUTE" and not GlobalId.is_global_id(trip_record.route_id):
+            self.report_quality_issue(
+                instance=instance,
+                pipeline=pipeline,
+                timestamp=now_processor_tz,
+                entity_id=entity.id,
+                issue_type_id=QualityIssue.RouteIdNonGlobal,
+                assessment_value=trip_record.route_id,
+            )
+
+        for stop_time_record in stop_time_records:
+            if not GlobalId.is_global_id(stop_time_record.stop_id):
+                self.report_quality_issue(
+                    instance=instance,
+                    pipeline=pipeline,
+                    timestamp=now_processor_tz,
+                    entity_id=entity.id,
+                    issue_type_id=QualityIssue.StopIdNonGlobal,
+                    assessment_value=stop_time_record.stop_id,
+                )
+
+            if (
+                stop_time_record.act_arrival_time is not None
+                and stop_time_record.act_departure_time is not None
+                and stop_time_record.act_departure_time < stop_time_record.act_arrival_time
+            ):
+                self.report_quality_issue(
+                    instance=instance,
+                    pipeline=pipeline,
+                    timestamp=now_processor_tz,
+                    entity_id=entity.id,
+                    issue_type_id=QualityIssue.EstimatedDepatureTimeBeforeArrivalTime,
+                    assessment_value=(
+                        f"{stop_time_record.act_departure_time.isoformat()} < "
+                        f"{stop_time_record.act_arrival_time.isoformat()}"
+                    ),
+                )
 
     def _build_trip_record(
         self,

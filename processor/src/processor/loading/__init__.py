@@ -1,4 +1,3 @@
-from .loading_service import LoadingService
 from .models import StopRecord, StopTimeRecord, TripRecord
 
 __all__ = [
@@ -7,3 +6,11 @@ __all__ = [
     "StopTimeRecord",
     "TripRecord",
 ]
+
+
+def __getattr__(name: str) -> object:
+    if name == "LoadingService":
+        from .loading_service import LoadingService
+
+        return LoadingService
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

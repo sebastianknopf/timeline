@@ -13,6 +13,9 @@ except ImportError:
 
 from processor.exports.models import (
     ExportDataSet,
+    ExportIssueTypeRow,
+    ExportQualityIssueRow,
+    ExportRequestRow,
     ExportRouteRow,
     ExportStopRow,
     ExportStopTimeRow,
@@ -40,6 +43,8 @@ _STOP_TIME = ExportStopTimeRow(
     act_arrival_time=None,
     act_departure_time=None,
     schedule_relationship="SCHEDULED",
+    arrival_delay_seconds=15,
+    departure_delay_seconds=20,
 )
 
 _TRIP = ExportTripRow(
@@ -59,6 +64,7 @@ _TRIP = ExportTripRow(
     nom_total_distance=10.0,
     act_total_distance=None,
     schedule_relationship="SCHEDULED",
+    realtime_assignment_method="MATCHING",
 )
 
 _STOP = ExportStopRow(stop_id="stop-A", stop_name="Stop A", stop_lat=48.0, stop_lon=11.0)
@@ -69,6 +75,28 @@ _ROUTE = ExportRouteRow(
     concessionaire_name=None,
     operator_id="op-1",
     operator_name="Operator One",
+)
+
+_ISSUE_TYPE = ExportIssueTypeRow(issue_type_id=1, code="OperatorIdIsNull")
+_REQUEST = ExportRequestRow(
+    request_id="req-1",
+    pipeline_id="pipeline-a",
+    timestamp=datetime(2026, 5, 31, 7, 0, tzinfo=_UTC),
+    num_entities=3,
+    age_seconds=42,
+    status_code=200,
+    loaded_direct_trip_count=2,
+    loaded_matched_trip_count=1,
+)
+_QUALITY_ISSUE = ExportQualityIssueRow(
+    issue_id="issue-1",
+    pipeline_id="pipeline-a",
+    timestamp=datetime(2026, 5, 31, 7, 0, tzinfo=_UTC),
+    entity_id="entity-1",
+    issue_type_id=1,
+    concessionaire_id=None,
+    operator_id="op-1",
+    assessment_value="OperatorIdIsNull",
 )
 
 
@@ -133,7 +161,7 @@ class TimelineExportTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(from_date, date(2026, 5, 30))
             self.assertEqual(to_date, date(2026, 5, 31))
 
-    async def test_zip_contains_all_four_txt_files(self, tmp_path: Path | None = None) -> None:
+    async def test_zip_contains_all_seven_txt_files(self, tmp_path: Path | None = None) -> None:
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -143,6 +171,9 @@ class TimelineExportTests(unittest.IsolatedAsyncioTestCase):
                 trips=[_TRIP],
                 stops=[_STOP],
                 routes=[_ROUTE],
+                issue_types=[_ISSUE_TYPE],
+                requests=[_REQUEST],
+                quality_issues=[_QUALITY_ISSUE],
             )
             repository = RecordingExportRepository(dataset)
             export = _make_export_config(from_day=-1, to_day=0, directory=directory)
@@ -161,6 +192,9 @@ class TimelineExportTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("trips.txt", names)
                 self.assertIn("stops.txt", names)
                 self.assertIn("routes.txt", names)
+                self.assertIn("issue_types.txt", names)
+                self.assertIn("requests.txt", names)
+                self.assertIn("quality_issues.txt", names)
 
     async def test_zip_filename_uses_export_impl_name_and_uuid(self) -> None:
         import re
@@ -220,11 +254,39 @@ class TimelineExportTests(unittest.IsolatedAsyncioTestCase):
                 lines[0],
                 "operation_day_date,trip_id,stop_id,stop_sequence,distance_from_start,"
                 "nom_arrival_time,nom_departure_time,act_arrival_time,act_departure_time,"
-                "schedule_relationship",
+                "schedule_relationship,arrival_delay_seconds,departure_delay_seconds",
             )
             self.assertIn("trip-1", lines[1])
             self.assertIn("stop-A", lines[1])
             self.assertIn("SCHEDULED", lines[1])
+
+    async def test_request_csv_contains_loaded_trip_count_columns(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            directory = Path(tmp_dir)
+            dataset = ExportDataSet(requests=[_REQUEST])
+            repository = RecordingExportRepository(dataset)
+            export = _make_export_config(directory=directory)
+            instance = _make_instance(export)
+            export_obj = TimelineExport(repository=repository)
+
+            await export_obj.execute(
+                instance=instance, export=export, current_date=date(2026, 5, 31)
+            )
+
+            zip_files = list(directory.glob("*.zip"))
+            with zipfile.ZipFile(zip_files[0]) as zf:
+                content = zf.read("requests.txt").decode("utf-8")
+
+            lines = content.strip().splitlines()
+            self.assertEqual(
+                lines[0],
+                "request_id,pipeline_id,timestamp,num_entities,loaded_direct_trip_count,"
+                "loaded_matched_trip_count,age_seconds,status_code",
+            )
+            self.assertIn("2", lines[1])
+            self.assertIn("1", lines[1])
 
     async def test_nullable_fields_written_as_empty_string(self) -> None:
         import tempfile
@@ -256,6 +318,45 @@ class TimelineExportTests(unittest.IsolatedAsyncioTestCase):
             # act_arrival_time is index 7, act_departure_time is index 8
             self.assertEqual(fields[7], "")
             self.assertEqual(fields[8], "")
+
+    async def test_new_monitoring_export_files_have_expected_headers_and_rows(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            directory = Path(tmp_dir)
+            dataset = ExportDataSet(
+                stop_times=[],
+                trips=[],
+                stops=[],
+                routes=[],
+                issue_types=[_ISSUE_TYPE],
+                requests=[_REQUEST],
+                quality_issues=[_QUALITY_ISSUE],
+            )
+            repository = RecordingExportRepository(dataset)
+            export = _make_export_config(directory=directory)
+            instance = _make_instance(export)
+            export_obj = TimelineExport(repository=repository)
+
+            await export_obj.execute(
+                instance=instance, export=export, current_date=date(2026, 5, 31)
+            )
+
+            zip_files = list(directory.glob("*.zip"))
+            with zipfile.ZipFile(zip_files[0]) as zf:
+                issue_types_content = zf.read("issue_types.txt").decode("utf-8")
+                requests_content = zf.read("requests.txt").decode("utf-8")
+                quality_issues_content = zf.read("quality_issues.txt").decode("utf-8")
+
+            self.assertIn("id,code", issue_types_content)
+            self.assertIn("OperatorIdIsNull", issue_types_content)
+            self.assertIn(
+                "request_id,pipeline_id,timestamp,num_entities,loaded_direct_trip_count,loaded_matched_trip_count,age_seconds,status_code",
+                requests_content,
+            )
+            self.assertIn("req-1", requests_content)
+            self.assertIn("issue_id,pipeline_id,timestamp,entity_id,issue_type_id,concessionaire_id,concessionaire_name,operator_id,operator_name,assessment_value,num_affected_values", quality_issues_content)
+            self.assertIn("issue-1", quality_issues_content)
 
 
 if __name__ == "__main__":

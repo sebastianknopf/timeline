@@ -31,6 +31,7 @@ services:
       PROCESSOR_CONFIG_PATH: /app/config/config.yaml
       PROCESSOR_MAPPING_ROOT: /etc/mapping
       PROCESSOR_TIMEZONE: ${PROCESSOR_TIMEZONE:-UTC}
+      PROCESSOR_GLOBAL_ID_PATTERN: ${PROCESSOR_GLOBAL_ID_PATTERN}
       PYTHONUNBUFFERED: "1"
     command: ["python", "-m", "processor"]
     volumes:

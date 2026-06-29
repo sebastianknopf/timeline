@@ -1,3 +1,19 @@
-from .models import Base, StopDimension, StopTimeFact, TripDimension
+from .models import (
+    Base,
+    IssueTypeDimension,
+    QualityIssueFact,
+    RequestFact,
+    StopDimension,
+    StopTimeFact,
+    TripDimension,
+)
 
-__all__ = ["Base", "StopDimension", "StopTimeFact", "TripDimension"]
+__all__ = [
+    "Base",
+    "IssueTypeDimension",
+    "QualityIssueFact",
+    "RequestFact",
+    "StopDimension",
+    "StopTimeFact",
+    "TripDimension",
+]

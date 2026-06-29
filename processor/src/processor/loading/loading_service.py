@@ -1,15 +1,34 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
+from enum import IntEnum
 
+from processor.common.quality_issues import QualityIssue
 import structlog
 
 from ..repository.intf_timeline_repository import TimelineRepositoryInterface
 from ..matching.matching_service import MatchingService
-from .models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
+from .models import QualityIssueRecord, RequestRecord, RouteRecord, StopRecord, StopTimeRecord, TripRecord
 
 LOGGER = structlog.get_logger(__name__)
+
+
+class RealtimeLoadingResult(IntEnum):
+    """Indicates the outcome of a realtime trip load attempt."""
+
+    SUCCESS_DIRECT = 0
+    SUCCESS_MATCHED = 1
+    NO_NOMINAL_TRIP_FOUND = 2
+    NO_AMBIGUOUS_NOMINAL_TRIP_FOUND = 3
+    INTERNAL_ERROR = 4
+
+
+@dataclass(frozen=True, slots=True)
+class RealtimeLoadingQualityIssue:
+    issue_type: QualityIssue
+    assessment_value: str | None = None
 
 
 class LoadingService:
@@ -37,30 +56,17 @@ class LoadingService:
             stop_times=stop_times,
         )
 
-    async def load_nominal_stops(self, instance_id: str, stops: list[StopRecord]) -> None:
-        await self.load_nominal_stops_batch(instance_id=instance_id, stops=stops)
-
-    async def load_nominal_trip_with_stop_times(
-        self,
-        instance_id: str,
-        trip: TripRecord,
-        stop_times: list[StopTimeRecord],
-    ) -> None:
-        await self._repository.insert_nominal_trip_with_stop_times(
-            instance_id=instance_id,
-            trip=trip,
-            stop_times=stop_times,
-        )
-
     async def load_realtime_trip_and_stop_times(
         self,
         instance_id: str,
         trip: TripRecord,
         stop_times: list[StopTimeRecord],
-    ) -> None:
+        issue_handler: Callable[[RealtimeLoadingQualityIssue], None] | None = None,
+    ) -> RealtimeLoadingResult:
         if not stop_times:
-            return
+            return RealtimeLoadingResult.INTERNAL_ERROR
 
+        # 1. step: Try getting nominal stop times by the trip ID.
         nominal_stop_times = await self._repository.get_nominal_stop_times_for_trip(
             instance_id=instance_id,
             operation_day_date=trip.operation_day_date,
@@ -69,6 +75,7 @@ class LoadingService:
 
         realtime_assignment_method: str | None = None
         
+        # 2. step: If no nominal stop times were found, try to match the trip to a nominal trip using MatchingService.
         if nominal_stop_times:
             realtime_assignment_method = "DIRECT"    
         else:
@@ -89,7 +96,16 @@ class LoadingService:
                     trip_id=trip.trip_id,
                     operation_day_date=str(trip.operation_day_date),
                 )
-                return
+
+                if issue_handler is not None:
+                    issue_handler(
+                        RealtimeLoadingQualityIssue(
+                            issue_type=QualityIssue.NoNominalTripFound,
+                            assessment_value=f"trip_id={trip.trip_id}, route_id={trip.route_id}, realtime_start_stop_id={trip._t_scheduled_start_stop_id}, realtime_end_stop_id={trip._t_scheduled_end_stop_id}, realtime_start_time={trip._t_scheduled_start_time.isoformat() if trip._t_scheduled_start_time is not None else None}, realtime_end_time={trip._t_scheduled_end_time.isoformat() if trip._t_scheduled_end_time is not None else None}"
+                        )
+                    )
+
+                return RealtimeLoadingResult.NO_NOMINAL_TRIP_FOUND
             
             nominal_stop_times = await self._repository.get_nominal_stop_times_for_trip(
                 instance_id=instance_id,
@@ -105,13 +121,22 @@ class LoadingService:
                     matched_trip_id=matched_trip_id,
                     operation_day_date=str(trip.operation_day_date),
                 )
-                return
+
+                return RealtimeLoadingResult.INTERNAL_ERROR 
             
             # Remap to the nominal trip_id for consistent DB primary-key usage.
             trip = replace(trip, trip_id=matched_trip_id)
             stop_times = [replace(st, trip_id=matched_trip_id) for st in stop_times]
 
-        normalized_input = self._apply_nominal_baseline(stop_times=stop_times, nominal_stop_times=nominal_stop_times)
+        # 3. step: Apply nominal baseline to the realtime stop times, propagating delays forward where necessary.
+        # this is the stage where realtime and nominal stop sequences are compared and merged
+        normalized_input = self._apply_nominal_baseline(
+            stop_times=stop_times, 
+            nominal_stop_times=nominal_stop_times,
+            issue_handler=issue_handler,
+            realtime_is_complete_stop_sequence=trip._t_is_complete_stop_sequence
+        )
+
         if not normalized_input:
             LOGGER.debug(
                 "realtime_trip_discarded_empty_baseline_merge",
@@ -119,13 +144,15 @@ class LoadingService:
                 trip_id=trip.trip_id,
                 operation_day_date=str(trip.operation_day_date),
                 feed_stop_count=len(stop_times),
-                nominal_stop_count=len(nominal_stop_times),
+                nominal_stop_count=len(nominal_stop_times)
             )
-            return
 
+            return RealtimeLoadingResult.INTERNAL_ERROR
+
+        # 4. step: Normalize the realtime stop times to resolve absolute timestamps and delay seconds into a single canonical representation.
         normalized_stop_times = self._normalize_realtime_stop_times(normalized_input)
         if not normalized_stop_times:
-            return
+            return RealtimeLoadingResult.INTERNAL_ERROR
 
         explicit_count = sum(
             1 for s in normalized_input
@@ -147,6 +174,7 @@ class LoadingService:
             normalized_stop_count=len(normalized_stop_times),
         )
 
+        # 5. step: Derive trip-level fields from the normalized stop times and the nominal trip.
         nominal_trip = await self._repository.get_nominal_trip(
             instance_id=instance_id,
             operation_day_date=trip.operation_day_date,
@@ -172,16 +200,93 @@ class LoadingService:
             stop_times=normalized_stop_times,
         )
 
+        if realtime_assignment_method == "DIRECT":
+            return RealtimeLoadingResult.SUCCESS_DIRECT
+        else:
+            return RealtimeLoadingResult.SUCCESS_MATCHED
+
+    async def load_request(
+        self,
+        instance_id: str,
+        request: RequestRecord,
+    ) -> None:
+        await self._repository.insert_request(
+            instance_id=instance_id, 
+            request=request
+        )
+
+    async def load_quality_issues_batch(
+        self,
+        instance_id: str,
+        quality_issues: list[QualityIssueRecord],
+    ) -> None:
+        await self._repository.upsert_quality_issues(
+            instance_id=instance_id,
+            quality_issues=quality_issues,
+        )   
+
     def _apply_nominal_baseline(
         self,
         stop_times: list[StopTimeRecord],
         nominal_stop_times: list[StopTimeRecord],
+        issue_handler: Callable[[RealtimeLoadingQualityIssue], None] | None = None,
+        realtime_is_complete_stop_sequence: bool = False
     ) -> list[StopTimeRecord]:
+        """Apply the nominal baseline to the realtime stop times, propagating delays forward where necessary.
+        This method also checks for unexpected and missing stops in the realtime feed compared to the nominal baseline.
+        If an issue_handler is provided, it will be called with any detected quality issues.
+        
+        Args:
+            stop_times (list[StopTimeRecord]): The list of realtime stop times to be processed
+            nominal_stop_times (list[StopTimeRecord]): The list of nominal stop times to be used as a baseline
+            issue_handler (Callable[[RealtimeLoadingQualityIssue], None], optional): A callable that will be called with any detected quality issues. Defaults to None.
+            realtime_is_complete_stop_sequence (bool, optional): A flag indicating whether the realtime feed is expected to be a complete stop sequence. Defaults to False.
+
+        Returns:
+            list[StopTimeRecord]: The list of stop times after applying the nominal baseline.
+        """
+
         # Defensive guard: all trips reaching this point must have nominal data since
         # non-nominal trips are discarded earlier in load_realtime_trip_and_stop_times.
         if not nominal_stop_times:
             return stop_times
 
+        if issue_handler is not None:
+            # if the issue handler is set, check for unexpected and missing stops in the realtime feed compared to the nominal baseline
+
+            # check for unexpected stops ...
+            unexpected_realtime_stops = [
+                rt
+                for rt in stop_times
+                if (
+                    rt.schedule_relationship != "ADDED"
+                    and not any(
+                        ns.stop_id == rt.stop_id
+                        for ns in nominal_stop_times
+                    )
+                )
+            ]
+
+            for unexpected_stop in unexpected_realtime_stops:
+                issue_handler(RealtimeLoadingQualityIssue(issue_type=QualityIssue.UnexpectedStopFound, assessment_value=unexpected_stop.stop_id))
+            
+            # check for missing stops ...
+            # if the realtime feed is expected to be a complete stop sequence
+            if realtime_is_complete_stop_sequence:
+                missing_realtime_stops = [
+                    ns
+                    for ns in nominal_stop_times
+                    if not any(
+                        rt.stop_sequence == ns.stop_sequence
+                        and rt.stop_id == ns.stop_id
+                        for rt in stop_times
+                    )
+                ]
+
+                for missing_stop in missing_realtime_stops:
+                    issue_handler(RealtimeLoadingQualityIssue(issue_type=QualityIssue.ExpectedStopMissing, assessment_value=missing_stop.stop_id))
+
+        # apply the nominal baseline to the realtime stop times, propagating delays forward where necessary
         realtime_by_sequence: dict[int, StopTimeRecord] = {item.stop_sequence: item for item in stop_times}
         ordered_nominal = sorted(nominal_stop_times, key=lambda s: s.stop_sequence)
 

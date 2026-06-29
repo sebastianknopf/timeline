@@ -9,7 +9,8 @@ try:
 except ImportError:
     import _test_bootstrap
 
-from processor.loading.loading_service import LoadingService
+from processor.common.quality_issues import QualityIssue
+from processor.loading.loading_service import LoadingService, RealtimeLoadingQualityIssue, RealtimeLoadingResult
 from processor.loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
 from processor.repository.intf_timeline_repository import TimelineRepositoryInterface
 
@@ -166,56 +167,9 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             StopRecord(stop_id="B", stop_name="Stop B", stop_lat=48.2, stop_lon=8.8),
         ]
 
-        await service.load_nominal_stops(instance_id="demo", stops=stops)
+        await service.load_nominal_stops_batch(instance_id="demo", stops=stops)
 
         self.assertEqual([("upsert_nominal_stops", "demo", 2)], repository.calls)
-
-    async def test_nominal_trip_and_stop_times_are_delegated_to_repository(self) -> None:
-        repository = RecordingRepository()
-        service = LoadingService(repository=repository)
-
-        trip = TripRecord(
-            operation_day_date=date(2026, 5, 24),
-            trip_id="trip-1",
-            route_id="route-1",
-            operator_id="op-1",
-            operator_name="Operator 1",
-            nom_start_time=datetime(2026, 5, 24, 8, 0, tzinfo=UTC),
-            nom_end_time=datetime(2026, 5, 24, 9, 0, tzinfo=UTC),
-            act_start_time=None,
-            act_end_time=None,
-            nom_start_stop_id="A",
-            nom_end_stop_id="B",
-            nom_total_distance=15.5,
-            act_total_distance=None,
-        )
-        stop_times = [
-            StopTimeRecord(
-                operation_day_date=date(2026, 5, 24),
-                trip_id="trip-1",
-                stop_id="A",
-                distance_from_start=0.0,
-                nom_arrival_time=datetime(2026, 5, 24, 8, 0, tzinfo=UTC),
-                nom_departure_time=datetime(2026, 5, 24, 8, 1, tzinfo=UTC),
-                act_arrival_time=None,
-                act_departure_time=None,
-                stop_sequence=1,
-            )
-        ]
-
-        await service.load_nominal_trip_with_stop_times(
-            instance_id="demo",
-            trip=trip,
-            stop_times=stop_times,
-        )
-
-        self.assertEqual(
-            [
-                ("insert_nominal_trips", "demo", 1),
-                ("insert_nominal_stop_times", "demo", 1),
-            ],
-            repository.calls,
-        )
 
     async def test_nominal_trip_already_existing_preserves_realtime_fields(self) -> None:
         """Nominal import must never overwrite realtime fields on a trip already in the database.
@@ -292,11 +246,8 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             stop_sequence=1,
         )
 
-        await service.load_nominal_trip_with_stop_times(
-            instance_id="demo",
-            trip=nominal_trip_again,
-            stop_times=[nominal_stop_time_again],
-        )
+        await service.load_nominal_trips_batch(instance_id="demo", trips=[nominal_trip_again])
+        await service.load_nominal_stop_times_batch(instance_id="demo", stop_times=[nominal_stop_time_again])
 
         # The existing trip's realtime enrichment must be fully intact.
         self.assertEqual(1, len(repository.nominal_trips))
@@ -2183,6 +2134,128 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
         # No nominal trip record → fall back to stop-level max = 9.3.
         self.assertAlmostEqual(9.3, loaded.nom_total_distance)
         self.assertAlmostEqual(9.3, loaded.act_total_distance)
+
+    async def test_realtime_loading_callback_emits_unexpected_and_missing_stop_issues(self) -> None:
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        operation_day = date(2026, 6, 24)
+        repository.nominal_stop_times = [
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-stop-issues",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=datetime(2026, 6, 24, 8, 0, tzinfo=UTC),
+                nom_departure_time=datetime(2026, 6, 24, 8, 1, tzinfo=UTC),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-stop-issues",
+                stop_id="B",
+                distance_from_start=1.0,
+                nom_arrival_time=datetime(2026, 6, 24, 8, 2, tzinfo=UTC),
+                nom_departure_time=datetime(2026, 6, 24, 8, 3, tzinfo=UTC),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+        ]
+
+        trip = TripRecord(
+            operation_day_date=operation_day,
+            trip_id="trip-stop-issues",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+            schedule_relationship="SCHEDULED",
+            _t_is_complete_stop_sequence=True,
+        )
+
+        stop_times = [
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-stop-issues",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=datetime(2026, 6, 24, 8, 0, tzinfo=UTC),
+                nom_departure_time=datetime(2026, 6, 24, 8, 1, tzinfo=UTC),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-stop-issues",
+                stop_id="X",
+                distance_from_start=99.0,
+                nom_arrival_time=datetime(2026, 6, 24, 8, 4, tzinfo=UTC),
+                nom_departure_time=datetime(2026, 6, 24, 8, 5, tzinfo=UTC),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=3,
+            ),
+        ]
+
+        reported_issues: list[RealtimeLoadingQualityIssue] = []
+
+        result = await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=stop_times,
+            issue_handler=reported_issues.append,
+        )
+
+        self.assertEqual(RealtimeLoadingResult.SUCCESS_DIRECT, result)
+        self.assertEqual(
+            [QualityIssue.UnexpectedStopFound, QualityIssue.ExpectedStopMissing],
+            [issue.issue_type for issue in reported_issues],
+        )
+        self.assertEqual("X", reported_issues[0].assessment_value)
+        self.assertEqual("B", reported_issues[1].assessment_value)
+
+    async def test_realtime_loading_callback_emits_no_nominal_trip_issue(self) -> None:
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        trip = TripRecord(
+            operation_day_date=date(2026, 6, 24),
+            trip_id="trip-callback",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+            schedule_relationship="SCHEDULED",
+        )
+        stop_times = [
+            StopTimeRecord(
+                operation_day_date=date(2026, 6, 24),
+                trip_id="trip-callback",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=datetime(2026, 6, 24, 8, 0, tzinfo=UTC),
+                nom_departure_time=datetime(2026, 6, 24, 8, 1, tzinfo=UTC),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            )
+        ]
+        reported_issues: list[RealtimeLoadingQualityIssue] = []
+
+        result = await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=stop_times,
+            issue_handler=reported_issues.append,
+        )
+
+        self.assertEqual(RealtimeLoadingResult.NO_NOMINAL_TRIP_FOUND, result)
+        self.assertEqual(1, len(reported_issues))
+        self.assertEqual(QualityIssue.NoNominalTripFound, reported_issues[0].issue_type)
+        self.assertIsNotNone(reported_issues[0].assessment_value)
+        self.assertEqual(f"trip_id={trip.trip_id}, route_id={trip.route_id}, realtime_start_stop_id={trip._t_scheduled_start_stop_id}, realtime_end_stop_id={trip._t_scheduled_end_stop_id}, realtime_start_time={trip._t_scheduled_start_time.isoformat() if trip._t_scheduled_start_time is not None else None}, realtime_end_time={trip._t_scheduled_end_time.isoformat() if trip._t_scheduled_end_time is not None else None}", reported_issues[0].assessment_value)
 
 
 if __name__ == "__main__":

@@ -110,6 +110,7 @@ Current entrypoint:
 | --- | --- |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Overall system architecture, service topology, ports, data flow, and volumes |
 | [docs/PROCESSOR.md](docs/PROCESSOR.md) | Processor service internals: pipelines, matching logic, loading strategy, repository layer |
+| [docs/DATAQUALITY.md](docs/DATAQUALITY.md) | Principals of data quality management and internal architecture of QM reporting |
 | [docs/DATABASE.md](docs/DATABASE.md) | Relational schema, table definitions, and field semantics |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Runtime configuration model and YAML reference |
 | [docs/EXPORTS.md](docs/EXPORTS.md) | Export configuration, scheduling, and host path mapping |

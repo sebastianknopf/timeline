@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from alembic import command
 from alembic.config import Config
+from processor.repository.intf_timeline_repository import TimelineRepositoryInterface
 import structlog
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -105,9 +106,10 @@ async def _run() -> None:
     _run_migrations()
 
     session_factory = _create_session_factory(processor_database_url)
-    repository = SqlAlchemyTimelineRepository(session_factory=session_factory)
-    loading_service = LoadingService(repository=repository)
-    mapping_service = MappingService()
+    repository: TimelineRepositoryInterface = SqlAlchemyTimelineRepository(session_factory=session_factory)
+    loading_service: LoadingService = LoadingService(repository=repository)
+    mapping_service: MappingService = MappingService()
+
     gtfs_nominal_pipeline = GtfsNominalPipeline(
         loading_service=loading_service,
         mapping_service=mapping_service,

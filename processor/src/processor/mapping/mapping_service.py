@@ -94,6 +94,7 @@ class MappingService(MappingServiceInterface):
             _t_scheduled_end_time=trip._t_scheduled_end_time,
             _t_scheduled_start_stop_id=self._map_value(trip._t_scheduled_start_stop_id, mapping_data.stops),
             _t_scheduled_end_stop_id=self._map_value(trip._t_scheduled_end_stop_id, mapping_data.stops),
+            _t_is_complete_stop_sequence=trip._t_is_complete_stop_sequence
         )
 
         mapped_stop_times = [
@@ -119,10 +120,12 @@ class MappingService(MappingServiceInterface):
     def _get_mapping_data(self, instance_id: str, pipeline_id: str) -> _PipelineMappingData:
         mapping_key = (instance_id, pipeline_id)
         mapping_data = self._pipeline_mapping.get(mapping_key)
+        
         if mapping_data is None:
             raise MappingServiceError(
                 f"No mapping registration found for instance '{instance_id}' pipeline '{pipeline_id}'."
             )
+        
         return mapping_data
 
     def _map_value(self, value: str | None, mapping_entries: tuple[tuple[str, str], ...]) -> str | None:
@@ -149,4 +152,5 @@ class MappingService(MappingServiceInterface):
                 if not raw_key:
                     continue
                 rows.append((raw_key, raw_value))
+
         return tuple(rows)
