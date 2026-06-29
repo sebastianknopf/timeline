@@ -90,6 +90,8 @@ class MappingService(MappingServiceInterface):
             nom_total_distance=trip.nom_total_distance,
             act_total_distance=trip.act_total_distance,
             schedule_relationship=trip.schedule_relationship,
+            realtime_assignment_method=trip.realtime_assignment_method,
+            realtime_pipeline_id=trip.realtime_pipeline_id,
             _t_scheduled_start_time=trip._t_scheduled_start_time,
             _t_scheduled_end_time=trip._t_scheduled_end_time,
             _t_scheduled_start_stop_id=self._map_value(trip._t_scheduled_start_stop_id, mapping_data.stops),
