@@ -61,6 +61,7 @@ _TRIP_COLUMNS = [
     "act_total_distance",
     "schedule_relationship",
     "realtime_assignment_method",
+    "realtime_pipeline_id",
 ]
 
 _STOP_COLUMNS = [
@@ -160,6 +161,7 @@ def _trip_to_row(r: ExportTripRow) -> list[object]:
         r.act_total_distance,
         r.schedule_relationship,
         r.realtime_assignment_method,
+        r.realtime_pipeline_id,
     ]
 
 
