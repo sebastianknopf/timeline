@@ -344,7 +344,7 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(realtime_arrival, repository.nominal_stop_times[0].act_arrival_time)
         self.assertEqual("SCHEDULED", repository.nominal_stop_times[0].schedule_relationship)
 
-    async def test_realtime_trip_is_rejected_when_current_pipeline_has_higher_priority(self) -> None:
+    async def test_realtime_trip_is_rejected_when_current_pipeline_has_lower_priority(self) -> None:
         RuntimeConfigService.initialize(
             ProcessorConfig(
                 instances=(
@@ -352,19 +352,19 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
                         id="demo",
                         pipelines=(
                             PipelineConfig(
-                                id="high-priority-pipeline",
-                                name="gtfsrt-high",
-                                type="realtime",
-                                cron="* * * * *",
-                                endpoint="https://example.test/high",
-                                priority=10,
-                            ),
-                            PipelineConfig(
                                 id="low-priority-pipeline",
                                 name="gtfsrt-low",
                                 type="realtime",
                                 cron="* * * * *",
                                 endpoint="https://example.test/low",
+                                priority=10,
+                            ),
+                            PipelineConfig(
+                                id="high-priority-pipeline",
+                                name="gtfsrt-high",
+                                type="realtime",
+                                cron="* * * * *",
+                                endpoint="https://example.test/high",
                                 priority=1,
                             ),
                         ),
@@ -383,7 +383,7 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
             route_id="route-1",
             operator_id="op-1",
             operator_name="Operator 1",
-            realtime_pipeline_id="high-priority-pipeline",
+            realtime_pipeline_id="low-priority-pipeline",
         )
         stop_time = StopTimeRecord(
             operation_day_date=operation_day,
@@ -404,7 +404,7 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
                 route_id="route-1",
                 operator_id="op-1",
                 operator_name="Operator 1",
-                realtime_pipeline_id="low-priority-pipeline",
+                realtime_pipeline_id="high-priority-pipeline",
             )
         ]
 
