@@ -46,6 +46,7 @@ class TripRecord:
     act_total_distance: float | None = None
     schedule_relationship: str = "UNKNOWN"
     realtime_assignment_method: str | None = None
+    realtime_pipeline_id: str | None = None
     # Optional: realtime delivered departure and arrival time. Only used for matching
     # when the primary trip ID lookup in the loading service fails to find nominal data.
     # Those fields are NEVER written into the database!

@@ -76,6 +76,7 @@ class DatabaseModelsTests(unittest.TestCase):
             "act_total_distance": ("DOUBLE PRECISION", True),
             "realtime_assignment_method": ("TEXT", True),
             "schedule_relationship": ("TEXT", False),
+            "realtime_pipeline_id": ("TEXT", True),
         }
 
         self.assertEqual(set(expected_columns.keys()), set(table.c.keys()))
