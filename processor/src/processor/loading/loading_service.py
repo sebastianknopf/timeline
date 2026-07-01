@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from enum import IntEnum
 
 from processor.common.quality_issues import QualityIssue
+from processor.common.runtime_config_service import RuntimeConfigService
 import structlog
 
 from ..repository.intf_timeline_repository import TimelineRepositoryInterface
@@ -22,6 +23,7 @@ class RealtimeLoadingResult(IntEnum):
     SUCCESS_MATCHED = 1
     NO_NOMINAL_TRIP_FOUND = 2
     NO_AMBIGUOUS_NOMINAL_TRIP_FOUND = 3
+    FAIL_PIPELINE_PRIORITY = 5
     INTERNAL_ERROR = 4
 
 
@@ -181,19 +183,52 @@ class LoadingService:
             trip_id=trip.trip_id,
         )
 
+        # 6. step: Update the trip only if the current pipeline has a higher or equal priority than the existing trip in the database
+        if (
+            nominal_trip is not None
+            and nominal_trip.realtime_pipeline_id is not None
+            and trip.realtime_pipeline_id is not None
+        ):
+            if trip.realtime_pipeline_id != nominal_trip.realtime_pipeline_id:
+                existing_pipeline_priority: int | None = RuntimeConfigService.get_pipeline_priority(
+                    instance_id=instance_id,
+                    pipeline_id=nominal_trip.realtime_pipeline_id,
+                )
+
+                current_pipeline_priority: int | None = RuntimeConfigService.get_pipeline_priority(
+                    instance_id=instance_id,
+                    pipeline_id=trip.realtime_pipeline_id,
+                )
+
+                if existing_pipeline_priority is not None and current_pipeline_priority is not None:
+                    if current_pipeline_priority > existing_pipeline_priority:
+                        LOGGER.debug(
+                            "realtime_trip_discarded_lower_priority",
+                            instance_id=instance_id,
+                            trip_id=trip.trip_id,
+                            operation_day_date=str(trip.operation_day_date),
+                            existing_pipeline_id=nominal_trip.realtime_pipeline_id,
+                            existing_pipeline_priority=existing_pipeline_priority,
+                            current_pipeline_id=trip.realtime_pipeline_id,
+                            current_pipeline_priority=current_pipeline_priority,
+                        )
+
+                        return RealtimeLoadingResult.FAIL_PIPELINE_PRIORITY
+        
+        # 7. step: Derive the trip-level fields from the normalized stop times and the nominal trip.
         normalized_trip = self._derive_realtime_trip_fields(
             source_trip=trip,
             nominal_stop_times=nominal_stop_times,
             normalized_stop_times=normalized_stop_times,
             nominal_trip=nominal_trip,
-        )
+        )                
 
         normalized_trip = replace(
             normalized_trip,
             realtime_assignment_method=realtime_assignment_method,
         )
 
-        # Matching strategy hooks belong here while DB writes remain in the repository.
+        # 8. step: Persist the normalized trip and stop times to the database.
         await self._repository.upsert_realtime_trip(instance_id=instance_id, trip=normalized_trip)
         await self._repository.upsert_realtime_stop_times(
             instance_id=instance_id,

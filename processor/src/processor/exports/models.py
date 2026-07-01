@@ -39,6 +39,7 @@ class ExportTripRow:
     act_total_distance: float | None
     schedule_relationship: str
     realtime_assignment_method: str | None = None
+    realtime_pipeline_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

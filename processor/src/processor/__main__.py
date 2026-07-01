@@ -13,6 +13,7 @@ import structlog
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from .common.runtime_config_service import RuntimeConfigService
 from .config_verifier import ConfigurationError, ConfigurationVerifier
 from .exports import TimelineExport, TimelineExportExecutor
 from .loading.loading_service import LoadingService
@@ -97,6 +98,7 @@ async def _run() -> None:
         raise SystemExit(1) from exc
 
     parsed_config = replace(parsed_config, timezone_name=processor_timezone_name)
+    RuntimeConfigService.initialize(parsed_config)
 
     processor_database_url = os.getenv("PROCESSOR_DATABASE_URL")
     if not processor_database_url:

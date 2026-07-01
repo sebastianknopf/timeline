@@ -171,25 +171,6 @@ Atomicity and asynchronous concurrency requirements:
 - use deterministic concurrency control during matching and upsert, for example row-level locks (`SELECT ... FOR UPDATE`) or PostgreSQL advisory locks scoped by instance and trip identity
 - treat deadlocks and serialization conflicts as retriable errors with bounded retries
 
-
-Matching workflow for realtime-to-nominal trip resolution:
-
-1. Try direct trip ID match first.
-2. If a direct trip ID match exists, accept it and stop matching.
-3. If no direct trip ID match exists, run fallback matching:
-   - use mapped actual route ID from the central mapping service
-   - use mapped actual stop IDs from the central mapping service
-   - find a nominal trip where:
-     - mapped route ID equals nominal route ID
-     - actual trip start time equals nominal trip start time
-     - mapped stop IDs equal nominal stop IDs in the same sequence
-4. If a fallback candidate satisfies all conditions above, treat that nominal trip as the final matched trip.
-5. Final fallback when start time and start date are unavailable in realtime input:
-  - match by mapped stop IDs in the same sequence
-  - validate that actual departure times match nominal departure times within a tolerance window of `-10 minutes` to `+30 minutes`
-  - if multiple nominal trips satisfy the fallback criteria, select the best match with the smallest arrival/departure time deviation
-  - if all stops satisfy sequence and tolerance conditions, treat that nominal trip as the final matched trip
-
 #### Realtime  Data Processing
 
 After receiving raw realtime records from a pipeline and fetching the corresponding nominal stop times from the database, the loading service executes the following post-processing steps in order before writing to the database.
@@ -227,7 +208,32 @@ Derives all trip-level boundary fields from the ordered stop-time data.
 - `act_end_time`: `act_departure_time` of the last realtime stop, but only written when that timestamp is `<= now`; otherwise kept `NULL` until the trip end is in the past.
 - `act_total_distance`: maximum `distance_from_start` across all normalized realtime stops.
 
+Matching workflow for realtime-to-nominal trip resolution:
+
+1. Try direct trip ID match first.
+2. If a direct trip ID match exists, accept it and stop matching.
+3. If no direct trip ID match exists, run fallback matching:
+   - use mapped actual route ID from the central mapping service
+   - use mapped actual stop IDs from the central mapping service
+   - find a nominal trip where:
+     - mapped route ID equals nominal route ID
+     - actual trip start time equals nominal trip start time
+     - mapped stop IDs equal nominal stop IDs in the same sequence
+4. If a fallback candidate satisfies all conditions above, treat that nominal trip as the final matched trip.
+5. Final fallback when start time and start date are unavailable in realtime input:
+  - match by mapped stop IDs in the same sequence
+  - validate that actual departure times match nominal departure times within a tolerance window of `-10 minutes` to `+30 minutes`
+  - if multiple nominal trips satisfy the fallback criteria, select the best match with the smallest arrival/departure time deviation
+  - if all stops satisfy sequence and tolerance conditions, treat that nominal trip as the final matched trip
+
 Realtime information supplied explicitly by the pipeline always takes precedence over any synthesized or propagated value.
+
+#### Pipeline Priorities
+Especially when configuring multiple realtime pipelines, there might be the case when two pipelines deliver data for the same nominal trip. To avoid both pipelines overwriting each other's realtime data, each pipeline can be configured with a `priority`. The highest priority is a prio 0 pipeline. Higher values indicate a lower pipeline priority. 
+
+During inserting realtime data, each trip is checked whether any realtime pipeline has already delivered data for this trip. If so, it is checked whether the current pipeline has a higher or equal priority compared to the trip's last pipeline. If the current pipeline has a lower priority (= higher value!), the update is discarded.
+
+**Note: Data quality measures are done before inserting realtime data. That means, even if the update is not propagated to the database, the quality issues and requests are recorded for each pipeline run independently of the priority.**
 
 ### Repository Service Layer
 

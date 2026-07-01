@@ -155,6 +155,7 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                 )
 
                 trip_record = self._build_trip_record(
+                    pipeline=pipeline,
                     operation_day=operation_day,
                     trip_id=trip_id,
                     route_id=route_id,
@@ -441,6 +442,7 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
 
     def _build_trip_record(
         self,
+        pipeline: PipelineConfig,
         operation_day: date,
         trip_id: str,
         route_id: str,
@@ -459,6 +461,7 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
             operator_id=None,
             operator_name=None,
             schedule_relationship=schedule_relationship,
+            realtime_pipeline_id=pipeline.id,
             _t_scheduled_start_time=scheduled_start_time,
         )
 

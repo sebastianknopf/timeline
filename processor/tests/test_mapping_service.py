@@ -105,6 +105,7 @@ class MappingServiceTests(unittest.IsolatedAsyncioTestCase):
                 nom_end_stop_id="S2",
                 nom_total_distance=11.5,
                 act_total_distance=None,
+                realtime_pipeline_id="pipeline-1",
             )
             stop_times = [
                 StopTimeRecord(
@@ -144,6 +145,7 @@ class MappingServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual("STOP-B", mapped_trip.nom_end_stop_id)
             self.assertEqual("STOP-A", mapped_stop_times[0].stop_id)
             self.assertEqual("STOP-B", mapped_stop_times[1].stop_id)
+            self.assertEqual("pipeline-1", mapped_trip.realtime_pipeline_id)
 
 
 if __name__ == "__main__":

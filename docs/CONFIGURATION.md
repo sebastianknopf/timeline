@@ -35,6 +35,7 @@ Each pipeline object defines:
 - `cron`: cron expression used to schedule this pipeline
 - `endpoint`: source endpoint URL or address
 - `policy` (optional): execution policy for cron scheduling behavior. Allowed values are `schedule` and `startupAndSchedule`. Default is `schedule`.
+- `priority` (optional): numeric priority of this pipeline. Highest priority is 0. Important when running multiple pipelines at the same instance which may all affect the same nominal trip to decide which pipeline update is processed and which one is discarded
 - `timezone` (optional): timezone for which the data in the pipeline are interpreted. Defaults to `UTC`. **Mainly used by realtime pipelines!**
 - `authentication` (optional): authentication object when required by the endpoint
 - `parameters` (optional): object containing arbitrary pipeline-specific key/value parameters passed to the selected pipeline implementation
@@ -103,14 +104,15 @@ Minimum validation requirements:
 5. Pipeline `type` is either `nominal` or `realtime`.
 6. Pipeline `name` matches a known pipeline definition document.
 7. If `policy` is present, it must be either `schedule` or `startupAndSchedule`.
-8. If `timezone` is present, this may be used in some pipelines for calculating localized timestamps.
-9. If `authentication` is present, it is either:
+8. If `priority` is present, it must be an integer >= 0.
+9. If `timezone` is present, this may be used in some pipelines for calculating localized timestamps.
+10. If `authentication` is present, it is either:
    - `{ token: <value> }`
    - `{ username: <value>, password: <value> }`
-10. If `parameters` is present, it must be a YAML object (mapping). Its keys are pipeline-defined and may vary by pipeline name.
-11. Each pipeline has a `filter` object containing either `routes` or `operators`.
-12. If `filter` contains `routes`, each route filter must have non-empty `match`, `type` and may contain references to mapping files in `mapping`.
-13. If `filter` contains `operators`, each operator filter must have non-empty `match`, `type` and may contain references to mapping files in and valid `mapping`.
+11. If `parameters` is present, it must be a YAML object (mapping). Its keys are pipeline-defined and may vary by pipeline name.
+12. Each pipeline has a `filter` object containing either `routes` or `operators`.
+13. If `filter` contains `routes`, each route filter must have non-empty `match`, `type` and may contain references to mapping files in `mapping`.
+14. If `filter` contains `operators`, each operator filter must have non-empty `match`, `type` and may contain references to mapping files in and valid `mapping`.
    - If the key `match` contains a `*` this is interpreted as wildcard during the filtering.
    - The key `type` must have the value `exclude` or `include`. The value decides whether the objects matching the given value in `match` are included or expluded by the pipeline.
    - If mapping files are provided, they must be readable CSV files containing at least `key` and `value` columns and encoded as UTF-8.

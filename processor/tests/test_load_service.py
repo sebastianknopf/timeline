@@ -10,9 +10,11 @@ except ImportError:
     import _test_bootstrap
 
 from processor.common.quality_issues import QualityIssue
+from processor.common.runtime_config_service import RuntimeConfigService
 from processor.loading.loading_service import LoadingService, RealtimeLoadingQualityIssue, RealtimeLoadingResult
 from processor.loading.models import RouteRecord, StopRecord, StopTimeRecord, TripRecord
 from processor.repository.intf_timeline_repository import TimelineRepositoryInterface
+from processor.runtime_config import InstanceConfig, PipelineConfig, ProcessorConfig
 
 
 class RecordingRepository(TimelineRepositoryInterface):
@@ -341,6 +343,152 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
         # Stop time nom fields must have been updated; act fields preserved.
         self.assertEqual(realtime_arrival, repository.nominal_stop_times[0].act_arrival_time)
         self.assertEqual("SCHEDULED", repository.nominal_stop_times[0].schedule_relationship)
+
+    async def test_realtime_trip_is_rejected_when_current_pipeline_has_lower_priority(self) -> None:
+        RuntimeConfigService.initialize(
+            ProcessorConfig(
+                instances=(
+                    InstanceConfig(
+                        id="demo",
+                        pipelines=(
+                            PipelineConfig(
+                                id="low-priority-pipeline",
+                                name="gtfsrt-low",
+                                type="realtime",
+                                cron="* * * * *",
+                                endpoint="https://example.test/low",
+                                priority=10,
+                            ),
+                            PipelineConfig(
+                                id="high-priority-pipeline",
+                                name="gtfsrt-high",
+                                type="realtime",
+                                cron="* * * * *",
+                                endpoint="https://example.test/high",
+                                priority=1,
+                            ),
+                        ),
+                    ),
+                )
+            )
+        )
+
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        operation_day = date(2026, 5, 26)
+        trip = TripRecord(
+            operation_day_date=operation_day,
+            trip_id="trip-priority",
+            route_id="route-1",
+            operator_id="op-1",
+            operator_name="Operator 1",
+            realtime_pipeline_id="low-priority-pipeline",
+        )
+        stop_time = StopTimeRecord(
+            operation_day_date=operation_day,
+            trip_id="trip-priority",
+            stop_id="A",
+            distance_from_start=0.0,
+            nom_arrival_time=datetime(2026, 5, 26, 8, 0, tzinfo=UTC),
+            nom_departure_time=datetime(2026, 5, 26, 8, 1, tzinfo=UTC),
+            act_arrival_time=datetime(2026, 5, 26, 8, 2, tzinfo=UTC),
+            act_departure_time=datetime(2026, 5, 26, 8, 2, tzinfo=UTC),
+            stop_sequence=1,
+        )
+        repository.nominal_stop_times = [stop_time]
+        repository.nominal_trips = [
+            TripRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-priority",
+                route_id="route-1",
+                operator_id="op-1",
+                operator_name="Operator 1",
+                realtime_pipeline_id="high-priority-pipeline",
+            )
+        ]
+
+        result = await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=[stop_time],
+        )
+
+        self.assertEqual(RealtimeLoadingResult.FAIL_PIPELINE_PRIORITY, result)
+        self.assertEqual([], repository.realtime_trips)
+
+    async def test_realtime_trip_is_accepted_when_current_pipeline_has_lower_priority(self) -> None:
+        RuntimeConfigService.initialize(
+            ProcessorConfig(
+                instances=(
+                    InstanceConfig(
+                        id="demo",
+                        pipelines=(
+                            PipelineConfig(
+                                id="high-priority-pipeline",
+                                name="gtfsrt-high",
+                                type="realtime",
+                                cron="* * * * *",
+                                endpoint="https://example.test/high",
+                                priority=10,
+                            ),
+                            PipelineConfig(
+                                id="low-priority-pipeline",
+                                name="gtfsrt-low",
+                                type="realtime",
+                                cron="* * * * *",
+                                endpoint="https://example.test/low",
+                                priority=1,
+                            ),
+                        ),
+                    ),
+                )
+            )
+        )
+
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        operation_day = date(2026, 5, 26)
+        trip = TripRecord(
+            operation_day_date=operation_day,
+            trip_id="trip-priority-low",
+            route_id="route-1",
+            operator_id="op-1",
+            operator_name="Operator 1",
+            realtime_pipeline_id="low-priority-pipeline",
+        )
+        stop_time = StopTimeRecord(
+            operation_day_date=operation_day,
+            trip_id="trip-priority-low",
+            stop_id="A",
+            distance_from_start=0.0,
+            nom_arrival_time=datetime(2026, 5, 26, 8, 0, tzinfo=UTC),
+            nom_departure_time=datetime(2026, 5, 26, 8, 1, tzinfo=UTC),
+            act_arrival_time=datetime(2026, 5, 26, 8, 2, tzinfo=UTC),
+            act_departure_time=datetime(2026, 5, 26, 8, 2, tzinfo=UTC),
+            stop_sequence=1,
+        )
+        repository.nominal_stop_times = [stop_time]
+        repository.nominal_trips = [
+            TripRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-priority-low",
+                route_id="route-1",
+                operator_id="op-1",
+                operator_name="Operator 1",
+                realtime_pipeline_id="high-priority-pipeline",
+            )
+        ]
+
+        result = await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=[stop_time],
+        )
+
+        self.assertEqual(RealtimeLoadingResult.SUCCESS_DIRECT, result)
+        self.assertEqual(1, len(repository.realtime_trips))
 
     async def test_realtime_trip_and_stop_times_are_delegated_to_repository(self) -> None:
         repository = RecordingRepository()
