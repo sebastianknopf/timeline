@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import os
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -321,24 +322,54 @@ class ConfigurationVerifier:
         token = raw_authentication.get("token")
         username = raw_authentication.get("username")
         password = raw_authentication.get("password")
+        cert: str | None = raw_authentication.get("cert")
+        key: str | None = raw_authentication.get("key")
+        chain: str | None = raw_authentication.get("chain")
 
-        has_token = isinstance(token, str) and bool(token.strip())
-        has_basic = (
+        has_token: bool = isinstance(token, str) and bool(token.strip())
+        has_basic: bool = (
             isinstance(username, str)
             and bool(username.strip())
             and isinstance(password, str)
             and bool(password.strip())
         )
+        has_mtls: bool = (
+            isinstance(cert, str)
+            and bool(cert.strip())
+            and isinstance(key, str)
+            and bool(key.strip())
+            and isinstance(chain, str)
+            and bool(chain.strip())
+        )
 
-        if has_token == has_basic:
+        # check that exactly one authentication method is used
+        if has_token + has_basic + has_mtls != 1:
             raise ConfigurationError(
-                f"Pipeline '{pipeline_id}' authentication must be either token or username/password."
+                f"Pipeline '{pipeline_id}' authentication must be either token, username/password or cert/key/chain, but not a combination of them."
+            )
+        
+        # check whether all mentioned mTLS authentication files exist if mTLS is used
+        if has_mtls and not os.path.isfile(cert):
+            raise ConfigurationError(
+                f"Pipeline '{pipeline_id}' authentication cert file '{cert}' does not exist."
+            )
+        if has_mtls and not os.path.isfile(key):
+            raise ConfigurationError(
+                f"Pipeline '{pipeline_id}' authentication key file '{key}' does not exist."
+            )
+        if has_mtls and not os.path.isfile(chain):
+            raise ConfigurationError(
+                f"Pipeline '{pipeline_id}' authentication chain file '{chain}' does not exist."
             )
 
+        # return AuthenticationConfig object
         return AuthenticationConfig(
             token=token.strip() if has_token else None,
             username=username.strip() if has_basic else None,
             password=password.strip() if has_basic else None,
+            cert=cert.strip() if isinstance(cert, str) and cert.strip() else None,
+            key=key.strip() if isinstance(key, str) and key.strip() else None,
+            chain=chain.strip() if isinstance(chain, str) and chain.strip() else None,
         )
 
     def _parse_filter(self, raw_filter: Any, pipeline_id: str) -> FilterConfig | None:
