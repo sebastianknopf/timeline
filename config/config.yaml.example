@@ -48,7 +48,6 @@ instance:
         authentication:
           cert: "security/client.crt"
           key: "security/client.key"
-          chain: "security/ca.pem"
         timezone: "Europe/Berlin"
         # Timezone must match the corresponding GTFS feed in GTFS-RT timezone
     export:

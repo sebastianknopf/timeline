@@ -324,7 +324,6 @@ class ConfigurationVerifier:
         password = raw_authentication.get("password")
         cert: str | None = raw_authentication.get("cert")
         key: str | None = raw_authentication.get("key")
-        chain: str | None = raw_authentication.get("chain")
 
         has_token: bool = isinstance(token, str) and bool(token.strip())
         has_basic: bool = (
@@ -338,8 +337,6 @@ class ConfigurationVerifier:
             and bool(cert.strip())
             and isinstance(key, str)
             and bool(key.strip())
-            and isinstance(chain, str)
-            and bool(chain.strip())
         )
 
         # check that exactly one authentication method is used
@@ -357,10 +354,6 @@ class ConfigurationVerifier:
             raise ConfigurationError(
                 f"Pipeline '{pipeline_id}' authentication key file '{key}' does not exist."
             )
-        if has_mtls and not os.path.isfile(chain):
-            raise ConfigurationError(
-                f"Pipeline '{pipeline_id}' authentication chain file '{chain}' does not exist."
-            )
 
         # return AuthenticationConfig object
         return AuthenticationConfig(
@@ -368,8 +361,7 @@ class ConfigurationVerifier:
             username=username.strip() if has_basic else None,
             password=password.strip() if has_basic else None,
             cert=cert.strip() if isinstance(cert, str) and cert.strip() else None,
-            key=key.strip() if isinstance(key, str) and key.strip() else None,
-            chain=chain.strip() if isinstance(chain, str) and chain.strip() else None,
+            key=key.strip() if isinstance(key, str) and key.strip() else None
         )
 
     def _parse_filter(self, raw_filter: Any, pipeline_id: str) -> FilterConfig | None:
