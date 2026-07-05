@@ -46,8 +46,9 @@ instance:
                 stops: "mapping/stops2.csv"
                 routes: "mapping/routes2.csv"
         authentication:
-          username: "${REALTIME_API_USER}"
-          password: "${REALTIME_API_PASSWORD}"
+          cert: "security/client.crt"
+          key: "security/client.key"
+          chain: "security/ca.pem"
         timezone: "Europe/Berlin"
         # Timezone must match the corresponding GTFS feed in GTFS-RT timezone
     export:

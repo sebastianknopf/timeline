@@ -44,11 +44,9 @@ services:
         read_only: true
         bind:
           create_host_path: false
-      - type: bind
-        source: ${PROCESSOR_MAPPING_DIR:-.}
-        target: /etc/mapping
-        read_only: true
+      - ${PROCESSOR_MAPPING_DIR:-.}/mapping:/etc/mapping:ro
       - ${PROCESSOR_EXPORT_DIR:-processor_exports}:/var/data/exports
+      - ${PROCESSOR_SECURITY_DIR:-.}/security:/etc/security:ro
 
   loki:
     image: grafana/loki:3.1.1

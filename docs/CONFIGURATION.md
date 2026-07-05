@@ -138,10 +138,7 @@ Optional high-frequency cadence for realtime pipelines:
 
 ## Mapping Directory
 
-The processor mounts a mapping root directory to `/etc/mapping` in the container.
-
-- Host mapping root is configured by environment variable `PROCESSOR_MAPPING_DIR`
-- Default value is the current project directory (`.`)
+The processor mounts a mapping root directory to `/etc/mapping` in the container. Default value is the current project directory (`.`).
 
 This allows mapping paths in `config.yaml` to be portable across local and container execution.
 ## Environment Variables
