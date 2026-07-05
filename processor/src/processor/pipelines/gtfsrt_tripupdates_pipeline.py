@@ -278,7 +278,16 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
         to keep auth behavior consistent across pipeline implementations.
         """
         headers = self._build_auth_headers(authentication)
-        with requests.get(endpoint, headers=headers, timeout=30) as response:
+
+        cert_filename: str | None = authentication.cert if authentication is not None else None
+        key_filename: str | None = authentication.key if authentication is not None else None
+
+        with requests.get(
+            endpoint, 
+            headers=headers, 
+            timeout=30,
+            cert=(cert_filename, key_filename) if cert_filename and key_filename else None
+        ) as response:
             status_code = response.status_code
             if status_code != 200:
                 raise HttpError(status_code, f"HTTP request to {endpoint} failed with status code {status_code}")

@@ -674,10 +674,20 @@ class GtfsNominalPipeline(NominalPipelineBase):
     ) -> tuple[zipfile.ZipFile, BytesIO, set[str]]:
         """Download and open a GTFS ZIP archive from a remote endpoint."""
         headers = self._build_auth_headers(authentication)
+
+        cert_filename: str | None = authentication.cert if authentication is not None else None
+        key_filename: str | None = authentication.key if authentication is not None else None
+
         buffer = BytesIO()
 
         try:
-            with requests.get(endpoint, headers=headers, stream=True, timeout=120) as response:
+            with requests.get(
+                endpoint, 
+                headers=headers, 
+                stream=True, 
+                timeout=120,
+                cert=(cert_filename, key_filename) if cert_filename and key_filename else None
+            ) as response:
                 response.raise_for_status()
                 for chunk in response.iter_content(chunk_size=65536):
                     if chunk:
