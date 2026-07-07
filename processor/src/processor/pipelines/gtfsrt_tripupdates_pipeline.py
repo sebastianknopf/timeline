@@ -35,18 +35,6 @@ class GtfsRealtimePipelineError(RuntimeError):
     """Raised when GTFS realtime processing cannot produce a valid payload."""
 
 
-@dataclass(frozen=True, slots=True)
-class _StopUpdate:
-    stop_id: str
-    stop_sequence: int
-    distance_from_start: float
-    actual_arrival_time: datetime | None
-    actual_departure_time: datetime | None
-    arrival_delay_seconds: int | None
-    departure_delay_seconds: int | None
-    schedule_relationship: str
-
-
 class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
     def __init__(
         self,
@@ -137,17 +125,13 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                     )
 
                     continue
-
-                stop_updates = self._extract_stop_updates(
-                    updates=trip_update.stop_time_update,
-                    default_schedule_relationship=trip_schedule_relationship,
-                )
                 
                 stop_time_records = self._build_stop_time_records(
                     operation_day=operation_day,
                     trip_id=trip_id,
-                    stop_updates=stop_updates,
-                    placeholder_nominal_time=now_processor_tz,
+                    updates=trip_update.stop_time_update,
+                    default_schedule_relationship=trip_schedule_relationship,
+                    placeholder_nominal_time=now_processor_tz
                 )
 
                 trip_record = self._build_trip_record(
@@ -299,69 +283,6 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
             raise GtfsRealtimePipelineError("Failed to decode GTFS realtime protobuf payload.") from exc
         return feed_message
 
-    def _extract_stop_updates(
-        self,
-        updates: Iterable[gtfs_realtime_pb2.TripUpdate.StopTimeUpdate],
-        default_schedule_relationship: str
-    ) -> list[_StopUpdate]:
-        results: list[_StopUpdate] = []
-
-        for index, update in enumerate(updates):
-            stop_id = (update.stop_id or "").strip()
-            if not stop_id:
-                continue
-
-            stop_sequence = update.stop_sequence if update.HasField("stop_sequence") else index + 1
-
-            arrival_time = (
-                _resolve_event_time(
-                    event=update.arrival,
-                    processor_timezone=self._processor_timezone,
-                )
-                if update.HasField("arrival")
-                else None
-            )
-            departure_time = (
-                _resolve_event_time(
-                    event=update.departure,
-                    processor_timezone=self._processor_timezone,
-                )
-                if update.HasField("departure")
-                else None
-            )
-            has_arrival_delay = update.HasField("arrival") and update.arrival.HasField("delay")
-            has_departure_delay = update.HasField("departure") and update.departure.HasField("delay")
-
-            if arrival_time is None and departure_time is None and not has_arrival_delay and not has_departure_delay:
-                continue
-
-            schedule_relationship = (
-                _enum_name(
-                    enum_descriptor=gtfs_realtime_pb2.TripUpdate.StopTimeUpdate.ScheduleRelationship,
-                    value=update.schedule_relationship,
-                    fallback=default_schedule_relationship,
-                )
-                if update.HasField("schedule_relationship")
-                else default_schedule_relationship
-            )
-
-            distance_from_start = 0.0
-
-            results.append(
-                _StopUpdate(
-                    stop_id=stop_id,
-                    stop_sequence=stop_sequence,
-                    distance_from_start=distance_from_start,
-                    actual_arrival_time=arrival_time,
-                    actual_departure_time=departure_time,
-                    arrival_delay_seconds=update.arrival.delay if update.HasField("arrival") and update.arrival.HasField("delay") else None,
-                    departure_delay_seconds=update.departure.delay if update.HasField("departure") and update.departure.HasField("delay") else None,
-                    schedule_relationship=schedule_relationship,
-                )
-            )
-
-        return results
-
     def _monitor_quality_issues(
         self,
         instance: InstanceConfig,
@@ -466,32 +387,76 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
         self,
         operation_day: date,
         trip_id: str,
-        stop_updates: list[_StopUpdate],
+        updates: Iterable[gtfs_realtime_pb2.TripUpdate.StopTimeUpdate],
+        default_schedule_relationship: str,
         placeholder_nominal_time: datetime,
     ) -> list[StopTimeRecord]:
         records: list[StopTimeRecord] = []
-        for update in stop_updates:
+
+        for index, update in enumerate(updates):
+            stop_id = (update.stop_id or "").strip()
+            if not stop_id:
+                continue
+
+            stop_sequence = update.stop_sequence if update.HasField("stop_sequence") else index + 1
+
+            actual_arrival_time = (
+                _resolve_event_time(
+                    event=update.arrival,
+                    processor_timezone=self._processor_timezone,
+                )
+                if update.HasField("arrival")
+                else None
+            )
+
+            actual_departure_time = (
+                _resolve_event_time(
+                    event=update.departure,
+                    processor_timezone=self._processor_timezone,
+                )
+                if update.HasField("departure")
+                else None
+            )
+
+            has_arrival_delay = update.HasField("arrival") and update.arrival.HasField("delay")
+            has_departure_delay = update.HasField("departure") and update.departure.HasField("delay")
+
+            if actual_arrival_time is None and actual_departure_time is None and not has_arrival_delay and not has_departure_delay:
+                continue
+
+            schedule_relationship = (
+                _enum_name(
+                    enum_descriptor=gtfs_realtime_pb2.TripUpdate.StopTimeUpdate.ScheduleRelationship,
+                    value=update.schedule_relationship,
+                    fallback=default_schedule_relationship,
+                )
+                if update.HasField("schedule_relationship")
+                else default_schedule_relationship
+            )
+
+            distance_from_start = 0.0
+
             # Use event timestamps as nominal placeholders so delay-based computations are
             # anchored to actual event times rather than the current wall-clock time.
             # LoadingService._apply_nominal_baseline replaces these with the real scheduled
             # times from the nominal baseline before any DB write (when nominal is loaded).
-            nom_arrival_time = update.actual_arrival_time or update.actual_departure_time or placeholder_nominal_time
-            nom_departure_time = update.actual_departure_time or update.actual_arrival_time or placeholder_nominal_time
+            nom_arrival_time = actual_arrival_time or actual_departure_time or placeholder_nominal_time
+            nom_departure_time = actual_departure_time or actual_arrival_time or placeholder_nominal_time
 
             records.append(
                 StopTimeRecord(
                     operation_day_date=operation_day,
                     trip_id=trip_id,
-                    stop_id=update.stop_id,
-                    distance_from_start=update.distance_from_start,
+                    stop_id=stop_id,
+                    distance_from_start=distance_from_start,
                     nom_arrival_time=nom_arrival_time,
                     nom_departure_time=nom_departure_time,
-                    act_arrival_time=update.actual_arrival_time,
-                    act_departure_time=update.actual_departure_time,
-                    schedule_relationship=update.schedule_relationship,
-                    stop_sequence=update.stop_sequence,
-                    arrival_delay_seconds=update.arrival_delay_seconds,
-                    departure_delay_seconds=update.departure_delay_seconds,
+                    act_arrival_time=actual_arrival_time,
+                    act_departure_time=actual_departure_time,
+                    schedule_relationship=schedule_relationship,
+                    stop_sequence=stop_sequence,
+                    arrival_delay_seconds=update.arrival.delay if update.HasField("arrival") and update.arrival.HasField("delay") else None,
+                    departure_delay_seconds=update.departure.delay if update.HasField("departure") and update.departure.HasField("delay") else None,
                 )
             )
 
@@ -510,7 +475,6 @@ def _route_matches_filter(route_id: str, route_filter: tuple[FilterEntryConfig, 
 
     return True
 
-
 def _safe_zoneinfo(timezone_name: str) -> ZoneInfo:
     try:
         return ZoneInfo(timezone_name)
@@ -518,10 +482,8 @@ def _safe_zoneinfo(timezone_name: str) -> ZoneInfo:
         LOGGER.warning("gtfsrt_invalid_timezone_fallback", timezone=timezone_name)
         return ZoneInfo("UTC")
 
-
 def _timestamp_to_utc(unix_seconds: int) -> datetime:
     return datetime.fromtimestamp(unix_seconds, tz=UTC)
-
 
 def _resolve_event_time(
     event: gtfs_realtime_pb2.TripUpdate.StopTimeEvent,
@@ -532,7 +494,6 @@ def _resolve_event_time(
         return _timestamp_to_utc(event.time).astimezone(processor_timezone)
 
     return None
-
 
 def _parse_service_date(raw_value: str, fallback_date: date) -> date:
     if not raw_value:
