@@ -141,9 +141,6 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                 stop_updates = self._extract_stop_updates(
                     updates=trip_update.stop_time_update,
                     default_schedule_relationship=trip_schedule_relationship,
-                    now_utc=now_utc,
-                    trip_timestamp_utc=_timestamp_to_utc(trip_update.timestamp) if trip_update.timestamp else None,
-                    feed_timestamp_utc=feed_timestamp_utc,
                 )
                 
                 stop_time_records = self._build_stop_time_records(
@@ -305,10 +302,7 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
     def _extract_stop_updates(
         self,
         updates: Iterable[gtfs_realtime_pb2.TripUpdate.StopTimeUpdate],
-        default_schedule_relationship: str,
-        now_utc: datetime,
-        trip_timestamp_utc: datetime | None,
-        feed_timestamp_utc: datetime | None,
+        default_schedule_relationship: str
     ) -> list[_StopUpdate]:
         results: list[_StopUpdate] = []
 
@@ -322,9 +316,6 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
             arrival_time = (
                 _resolve_event_time(
                     event=update.arrival,
-                    now_utc=now_utc,
-                    trip_timestamp_utc=trip_timestamp_utc,
-                    feed_timestamp_utc=feed_timestamp_utc,
                     processor_timezone=self._processor_timezone,
                 )
                 if update.HasField("arrival")
@@ -333,9 +324,6 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
             departure_time = (
                 _resolve_event_time(
                     event=update.departure,
-                    now_utc=now_utc,
-                    trip_timestamp_utc=trip_timestamp_utc,
-                    feed_timestamp_utc=feed_timestamp_utc,
                     processor_timezone=self._processor_timezone,
                 )
                 if update.HasField("departure")
@@ -537,9 +525,6 @@ def _timestamp_to_utc(unix_seconds: int) -> datetime:
 
 def _resolve_event_time(
     event: gtfs_realtime_pb2.TripUpdate.StopTimeEvent,
-    now_utc: datetime,
-    trip_timestamp_utc: datetime | None,
-    feed_timestamp_utc: datetime | None,
     processor_timezone: ZoneInfo,
 ) -> datetime | None:
     # Absolute event timestamp is authoritative; delay is resolved in the load service against nominal time.
