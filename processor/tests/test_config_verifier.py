@@ -273,6 +273,95 @@ instance:
             with self.assertRaises(ConfigurationError):
                 verifier.load_and_validate(config_file)
 
+        def test_load_and_validate_authentication_accepts_exactly_one_method(self) -> None:
+          with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            cert_file = tmp_dir / "client.crt"
+            key_file = tmp_dir / "client.key"
+            cert_file.write_text("dummy-cert", encoding="utf-8")
+            key_file.write_text("dummy-key", encoding="utf-8")
+
+            verifier = ConfigurationVerifier(mapping_root=tmp_dir)
+
+            valid_auth_blocks = {
+              "token": 'token: "abc"',
+              "basic": 'username: "user"\n          password: "pw"',
+              "mtls": (
+                f'cert: "{cert_file.as_posix()}"\n'
+                f'          key: "{key_file.as_posix()}"'
+              ),
+            }
+
+            for case_name, auth_block in valid_auth_blocks.items():
+              with self.subTest(case=case_name):
+                config_file = tmp_dir / "config.yaml"
+                config_file.write_text(
+                  f"""
+      instance:
+        - id: demo
+        pipeline:
+          - id: realtime-main
+          name: gtfsrt-tripupdates
+          type: realtime
+          cron: "* * * * *"
+          endpoint: "https://example.test/realtime"
+          authentication:
+            {auth_block}
+      """.strip(),
+                  encoding="utf-8",
+                )
+
+                parsed = verifier.load_and_validate(config_file)
+                self.assertIsNotNone(parsed.instances[0].pipelines[0].authentication)
+
+            invalid_auth_blocks = {
+              "token_and_basic": (
+                'token: "abc"\n'
+                '          username: "user"\n'
+                '          password: "pw"'
+              ),
+              "token_and_mtls": (
+                f'token: "abc"\n'
+                f'          cert: "{cert_file.as_posix()}"\n'
+                f'          key: "{key_file.as_posix()}"'
+              ),
+              "basic_and_mtls": (
+                'username: "user"\n'
+                '          password: "pw"\n'
+                f'          cert: "{cert_file.as_posix()}"\n'
+                f'          key: "{key_file.as_posix()}"'
+              ),
+              "all_methods": (
+                'token: "abc"\n'
+                '          username: "user"\n'
+                '          password: "pw"\n'
+                f'          cert: "{cert_file.as_posix()}"\n'
+                f'          key: "{key_file.as_posix()}"'
+              ),
+            }
+
+            for case_name, auth_block in invalid_auth_blocks.items():
+              with self.subTest(case=case_name):
+                config_file = tmp_dir / "config.yaml"
+                config_file.write_text(
+                  f"""
+      instance:
+        - id: demo
+        pipeline:
+          - id: realtime-main
+          name: gtfsrt-tripupdates
+          type: realtime
+          cron: "* * * * *"
+          endpoint: "https://example.test/realtime"
+          authentication:
+            {auth_block}
+      """.strip(),
+                  encoding="utf-8",
+                )
+
+                with self.assertRaises(ConfigurationError):
+                  verifier.load_and_validate(config_file)
+
     def test_load_and_validate_rejects_mapping_path_outside_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir_str:
             tmp_dir = Path(tmp_dir_str)
