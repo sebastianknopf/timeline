@@ -15,7 +15,7 @@ except ImportError:
 
 from processor.common.quality_issues import QualityIssue
 from processor.exports.models import ExportDataSet, ExportQualityIssueRow, ExportRequestRow
-from processor.loading.loading_service import LoadingService
+from processor.loading.loading_service import LoadingService, RealtimeLoadingResult
 from processor.loading.models import QualityIssueRecord, RequestRecord, RouteRecord, StopTimeRecord, TripRecord
 from processor.mapping.mapping_service import MappingService
 from processor.pipelines.gtfsrt_tripupdates_pipeline import GtfsRtTripUpdatesPipeline
@@ -199,7 +199,96 @@ class InMemoryGtfsRtTripUpdatesPipeline(GtfsRtTripUpdatesPipeline):
         return self._payload
 
 
+class RecordingLoadingService(LoadingService):
+    def __init__(self, repository: RecordingRepository) -> None:
+        super().__init__(repository=repository)
+        self.calls: list[tuple[str, TripRecord, list[StopTimeRecord]]] = []
+
+    async def load_realtime_trip_and_stop_times(
+        self,
+        instance_id: str,
+        trip: TripRecord,
+        stop_times: list[StopTimeRecord],
+        issue_handler: object | None = None,
+    ) -> RealtimeLoadingResult:
+        self.calls.append((instance_id, trip, stop_times))
+        return RealtimeLoadingResult.INTERNAL_ERROR
+
+
 class GtfsRtTripUpdatesPipelineTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cancelled_trip_without_stop_updates_is_passed_to_loading_service(self) -> None:
+        pipeline = PipelineConfig(
+            id="realtime-main",
+            name="gtfsrt-tripupdates",
+            type="realtime",
+            cron="* * * * *",
+            endpoint="https://example.test/realtime",
+        )
+        instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+        now = datetime.now(UTC)
+        payload = _build_feed_payload(
+            trip_id="T-CANCELED-NO-STOPS",
+            route_id="R-CANCELED",
+            start_date=now.strftime("%Y%m%d"),
+            schedule_relationship=3,
+            stop_updates=(),
+        )
+
+        repository = RecordingRepository()
+        loading_service = RecordingLoadingService(repository=repository)
+        mapping_service = MappingService()
+        mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+
+        gtfsrt_pipeline = InMemoryGtfsRtTripUpdatesPipeline(
+            payload=payload,
+            loading_service=loading_service,
+            mapping_service=mapping_service,
+        )
+
+        await gtfsrt_pipeline.execute(instance=instance, pipeline=pipeline)
+
+        self.assertEqual(1, len(loading_service.calls))
+        call_instance_id, call_trip, call_stop_times = loading_service.calls[0]
+        self.assertEqual("demo", call_instance_id)
+        self.assertEqual("T-CANCELED-NO-STOPS", call_trip.trip_id)
+        self.assertEqual("CANCELED", call_trip.schedule_relationship)
+        self.assertEqual(0, len(call_stop_times))
+
+    async def test_scheduled_trip_without_stop_updates_is_filtered_out_before_loading(self) -> None:
+        pipeline = PipelineConfig(
+            id="realtime-main",
+            name="gtfsrt-tripupdates",
+            type="realtime",
+            cron="* * * * *",
+            endpoint="https://example.test/realtime",
+        )
+        instance = InstanceConfig(id="demo", pipelines=(pipeline,))
+
+        now = datetime.now(UTC)
+        payload = _build_feed_payload(
+            trip_id="T-SCHEDULED-NO-STOPS",
+            route_id="R-SCHEDULED",
+            start_date=now.strftime("%Y%m%d"),
+            schedule_relationship=0,
+            stop_updates=(),
+        )
+
+        repository = RecordingRepository()
+        loading_service = RecordingLoadingService(repository=repository)
+        mapping_service = MappingService()
+        mapping_service.register_pipeline_mapping(instance_id=instance.id, pipeline=pipeline)
+
+        gtfsrt_pipeline = InMemoryGtfsRtTripUpdatesPipeline(
+            payload=payload,
+            loading_service=loading_service,
+            mapping_service=mapping_service,
+        )
+
+        await gtfsrt_pipeline.execute(instance=instance, pipeline=pipeline)
+
+        self.assertEqual(0, len(loading_service.calls))
+
     async def test_repository_smoke_inserts_requests_and_quality_issues(self) -> None:
         repository = RecordingRepository()
         request = RequestRecord(

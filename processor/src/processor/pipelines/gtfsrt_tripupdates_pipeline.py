@@ -151,7 +151,7 @@ class GtfsRtTripUpdatesPipeline(RealtimePipelineBase):
                     stop_times=stop_time_records,
                 )
 
-                if not mapped_stop_times:
+                if trip_schedule_relationship != "CANCELED" and not mapped_stop_times:
                     continue
 
                 # run quality monitoring
