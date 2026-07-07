@@ -65,8 +65,6 @@ class LoadingService:
         stop_times: list[StopTimeRecord],
         issue_handler: Callable[[RealtimeLoadingQualityIssue], None] | None = None,
     ) -> RealtimeLoadingResult:
-        if not stop_times:
-            return RealtimeLoadingResult.INTERNAL_ERROR
 
         # 1. step: Try getting nominal stop times by the trip ID.
         nominal_stop_times = await self._repository.get_nominal_stop_times_for_trip(
@@ -320,7 +318,12 @@ class LoadingService:
 
                 for missing_stop in missing_realtime_stops:
                     issue_handler(RealtimeLoadingQualityIssue(issue_type=QualityIssue.ExpectedStopMissing, assessment_value=missing_stop.stop_id))
-
+        
+        # If we have no realtime data, there's nothing to merge at all. Return the nominal baseline as-is.
+        # Important: This has to be done after the quality check in order to report missing stops when the realtime feed is expected to be a complete stop sequence.
+        if not stop_times:
+            return nominal_stop_times
+        
         # apply the nominal baseline to the realtime stop times, propagating delays forward where necessary
         realtime_by_sequence: dict[int, StopTimeRecord] = {item.stop_sequence: item for item in stop_times}
         ordered_nominal = sorted(nominal_stop_times, key=lambda s: s.stop_sequence)
@@ -328,6 +331,7 @@ class LoadingService:
         merged: list[StopTimeRecord] = []
         last_arrival_delay_s: int | None = None
         last_departure_delay_s: int | None = None
+        last_schedule_relationship: str | None = None
 
         for baseline in ordered_nominal:
             record = realtime_by_sequence.get(baseline.stop_sequence)
@@ -342,12 +346,14 @@ class LoadingService:
                         distance_from_start=baseline.distance_from_start,
                     )
                 )
+
                 # Update tracked delay for forward propagation to subsequent stops.
                 # Absolute time takes priority; delay_seconds is used as a fallback.
                 if record.act_arrival_time is not None:
                     last_arrival_delay_s = round(
                         (record.act_arrival_time - baseline.nom_arrival_time).total_seconds()
                     )
+
                 elif record.arrival_delay_seconds is not None:
                     last_arrival_delay_s = record.arrival_delay_seconds
 
@@ -355,14 +361,18 @@ class LoadingService:
                     last_departure_delay_s = round(
                         (record.act_departure_time - baseline.nom_departure_time).total_seconds()
                     )
+
                 elif record.departure_delay_seconds is not None:
                     last_departure_delay_s = record.departure_delay_seconds
 
+                last_schedule_relationship = record.schedule_relationship
+
             elif last_arrival_delay_s is not None or last_departure_delay_s is not None:
+                
                 # No explicit update for this stop, but a preceding update provides a
                 # propagation basis.  Synthesize a stop-time record by applying the
                 # tracked delay to the nominal baseline.  Schedule relationship is always
-                # SCHEDULED for propagated stops; an explicit update for the same stop
+                # the last_schedule_relationship for propagated stops; an explicit update for the same stop
                 # in a later position in this feed would override this value.
                 merged.append(
                     StopTimeRecord(
@@ -374,7 +384,7 @@ class LoadingService:
                         nom_departure_time=baseline.nom_departure_time,
                         act_arrival_time=None,
                         act_departure_time=None,
-                        schedule_relationship="SCHEDULED",
+                        schedule_relationship=last_schedule_relationship if last_schedule_relationship is not None else "UNKNOWN",
                         stop_sequence=baseline.stop_sequence,
                         arrival_delay_seconds=last_arrival_delay_s,
                         departure_delay_seconds=last_departure_delay_s,
@@ -405,6 +415,7 @@ class LoadingService:
                 absolute_timestamp=record.act_arrival_time,
                 delay_seconds=record.arrival_delay_seconds,
             )
+
             resolved_act_departure = _resolve_realtime_timestamp(
                 nominal_timestamp=record.nom_departure_time,
                 absolute_timestamp=record.act_departure_time,
@@ -414,6 +425,7 @@ class LoadingService:
             # Keep arrival/departure paired for one stop when only one realtime side exists.
             if resolved_act_arrival is None and resolved_act_departure is not None:
                 resolved_act_arrival = resolved_act_departure
+
             if resolved_act_departure is None and resolved_act_arrival is not None:
                 resolved_act_departure = resolved_act_arrival
 

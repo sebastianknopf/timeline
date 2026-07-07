@@ -1868,6 +1868,221 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(nom_s3_dep + timedelta(seconds=180), by_seq[3].act_departure_time)
         self.assertEqual("SCHEDULED", by_seq[3].schedule_relationship)
 
+    async def test_empty_realtime_updates_expand_to_full_nominal_baseline(self) -> None:
+        """If no realtime stop updates are provided, all nominal stops are persisted.
+
+        This covers the fallback path where _apply_nominal_baseline returns the nominal
+        baseline unchanged when stop_times is empty.
+        """
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        op_day = date(2026, 6, 1)
+        nom_base = datetime(2026, 6, 1, 8, 0, tzinfo=UTC)
+        repository.nominal_stop_times = [
+            StopTimeRecord(
+                operation_day_date=op_day,
+                trip_id="T-NO-RT",
+                stop_id="S1",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base + timedelta(minutes=5),
+                nom_departure_time=nom_base + timedelta(minutes=6),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+                schedule_relationship="SCHEDULED",
+            ),
+            StopTimeRecord(
+                operation_day_date=op_day,
+                trip_id="T-NO-RT",
+                stop_id="S2",
+                distance_from_start=3.0,
+                nom_arrival_time=nom_base + timedelta(minutes=15),
+                nom_departure_time=nom_base + timedelta(minutes=16),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+                schedule_relationship="SCHEDULED",
+            ),
+            StopTimeRecord(
+                operation_day_date=op_day,
+                trip_id="T-NO-RT",
+                stop_id="S3",
+                distance_from_start=6.0,
+                nom_arrival_time=nom_base + timedelta(minutes=25),
+                nom_departure_time=nom_base + timedelta(minutes=26),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=3,
+                schedule_relationship="SCHEDULED",
+            ),
+        ]
+
+        trip = TripRecord(
+            operation_day_date=op_day,
+            trip_id="T-NO-RT",
+            route_id="R1",
+            operator_id=None,
+            operator_name=None,
+            schedule_relationship="SCHEDULED",
+        )
+
+        result = await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=[],
+        )
+
+        self.assertEqual(RealtimeLoadingResult.SUCCESS_DIRECT, result)
+        self.assertEqual(3, len(repository.realtime_stop_times))
+        self.assertEqual({1, 2, 3}, {s.stop_sequence for s in repository.realtime_stop_times})
+
+    async def test_empty_realtime_updates_keep_cancelled_nominal_stops(self) -> None:
+        """Cancelled nominal stops are preserved when realtime feed has no stop updates."""
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        op_day = date(2026, 6, 2)
+        nom_base = datetime(2026, 6, 2, 8, 0, tzinfo=UTC)
+        repository.nominal_stop_times = [
+            StopTimeRecord(
+                operation_day_date=op_day,
+                trip_id="T-CANCEL-PASS",
+                stop_id="S1",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base + timedelta(minutes=5),
+                nom_departure_time=nom_base + timedelta(minutes=6),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+                schedule_relationship="CANCELED",
+            ),
+            StopTimeRecord(
+                operation_day_date=op_day,
+                trip_id="T-CANCEL-PASS",
+                stop_id="S2",
+                distance_from_start=4.0,
+                nom_arrival_time=nom_base + timedelta(minutes=15),
+                nom_departure_time=nom_base + timedelta(minutes=16),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+                schedule_relationship="SCHEDULED",
+            ),
+        ]
+
+        trip = TripRecord(
+            operation_day_date=op_day,
+            trip_id="T-CANCEL-PASS",
+            route_id="R1",
+            operator_id=None,
+            operator_name=None,
+            schedule_relationship="CANCELED",
+        )
+
+        result = await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=[],
+        )
+
+        self.assertEqual(RealtimeLoadingResult.SUCCESS_DIRECT, result)
+        self.assertEqual(2, len(repository.realtime_stop_times))
+        by_seq = {s.stop_sequence: s for s in repository.realtime_stop_times}
+        self.assertEqual("CANCELED", by_seq[1].schedule_relationship)
+        self.assertEqual("SCHEDULED", by_seq[2].schedule_relationship)
+
+    async def test_propagated_stops_inherit_last_schedule_relationship(self) -> None:
+        """Propagated stops must inherit the last explicit schedule relationship."""
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        op_day = date(2026, 6, 3)
+        nom_base = datetime(2026, 6, 3, 8, 0, tzinfo=UTC)
+        nom_s1_arr = nom_base + timedelta(minutes=5)
+        nom_s1_dep = nom_base + timedelta(minutes=6)
+        nom_s2_arr = nom_base + timedelta(minutes=15)
+        nom_s2_dep = nom_base + timedelta(minutes=16)
+        nom_s3_arr = nom_base + timedelta(minutes=25)
+        nom_s3_dep = nom_base + timedelta(minutes=26)
+
+        repository.nominal_stop_times = [
+            StopTimeRecord(
+                operation_day_date=op_day,
+                trip_id="T-PROP-CANCEL",
+                stop_id="S1",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_s1_arr,
+                nom_departure_time=nom_s1_dep,
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=op_day,
+                trip_id="T-PROP-CANCEL",
+                stop_id="S2",
+                distance_from_start=3.0,
+                nom_arrival_time=nom_s2_arr,
+                nom_departure_time=nom_s2_dep,
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+            StopTimeRecord(
+                operation_day_date=op_day,
+                trip_id="T-PROP-CANCEL",
+                stop_id="S3",
+                distance_from_start=6.0,
+                nom_arrival_time=nom_s3_arr,
+                nom_departure_time=nom_s3_dep,
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=3,
+            ),
+        ]
+
+        trip = TripRecord(
+            operation_day_date=op_day,
+            trip_id="T-PROP-CANCEL",
+            route_id="R1",
+            operator_id=None,
+            operator_name=None,
+            schedule_relationship="CANCELED",
+        )
+
+        # One explicit canceled stop update with delay=0 so subsequent stops are propagated.
+        realtime = [
+            StopTimeRecord(
+                operation_day_date=op_day,
+                trip_id="T-PROP-CANCEL",
+                stop_id="S1",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_s1_arr,
+                nom_departure_time=nom_s1_dep,
+                act_arrival_time=None,
+                act_departure_time=None,
+                arrival_delay_seconds=0,
+                departure_delay_seconds=0,
+                stop_sequence=1,
+                schedule_relationship="CANCELED",
+            ),
+        ]
+
+        result = await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=realtime,
+        )
+
+        self.assertEqual(RealtimeLoadingResult.SUCCESS_DIRECT, result)
+        self.assertEqual(3, len(repository.realtime_stop_times))
+
+        by_seq = {s.stop_sequence: s for s in repository.realtime_stop_times}
+        self.assertEqual("CANCELED", by_seq[1].schedule_relationship)
+        self.assertEqual("CANCELED", by_seq[2].schedule_relationship)
+        self.assertEqual("CANCELED", by_seq[3].schedule_relationship)
+
     async def test_act_total_distance_equals_nom_total_distance_for_scheduled_trip(self) -> None:
         """For a SCHEDULED trip, act_total_distance must be set to nom_total_distance.
 
