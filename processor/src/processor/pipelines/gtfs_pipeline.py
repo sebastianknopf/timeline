@@ -8,11 +8,10 @@ from datetime import date, datetime, time, timedelta
 from io import BytesIO, TextIOWrapper
 from itertools import islice
 from typing import Iterable, Iterator
-from urllib.request import Request, urlopen
-import base64
 import zipfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import requests
 import structlog
 
 from ..loading.loading_service import LoadingService
@@ -94,13 +93,13 @@ class GtfsNominalPipeline(NominalPipelineBase):
                 f"GtfsNominalPipeline cannot execute pipeline '{pipeline.id}' with name '{pipeline.name}'."
             )
 
-        feed = _GtfsArchive.open_endpoint(
+        archive, buffer, names = self._open_endpoint_archive(
             endpoint=pipeline.endpoint,
             authentication=pipeline.authentication,
         )
 
         try:
-            agencies = self._read_agencies(feed=feed)
+            agencies = self._read_agencies(archive=archive, names=names)
             filter_selection = pipeline.filter
             selected_agencies = self._select_agencies_for_filter(
                 agencies=agencies,
@@ -112,24 +111,39 @@ class GtfsNominalPipeline(NominalPipelineBase):
             )
             source_timezone = _safe_zoneinfo(source_timezone_name)
             operation_day = datetime.now(self._processor_timezone).date()
-            valid_service_ids = self._resolve_valid_service_ids(feed=feed, operation_day=operation_day)
+            valid_service_ids = self._resolve_valid_service_ids(
+                archive=archive,
+                names=names,
+                operation_day=operation_day,
+            )
             routes = self._read_routes(
-                feed=feed,
+                archive=archive,
+                names=names,
                 agencies=selected_agencies,
                 pipeline=pipeline,
                 route_rules=filter_selection.routes if filter_selection is not None else (),
                 operator_rules=filter_selection.operators if filter_selection is not None else (),
             )
             trips = self._read_trips(
-                feed=feed,
+                archive=archive,
+                names=names,
                 valid_service_ids=valid_service_ids,
                 allowed_route_ids=set(routes.keys()),
             )
-            shape_index = self._read_shape_index(feed=feed)
-            stop_times_by_trip = self._read_stop_times(feed=feed, valid_trip_ids=set(trips.keys()))
-            stop_records = self._read_stops(feed=feed, referenced_stop_ids=_referenced_stop_ids(stop_times_by_trip))
+            shape_index = self._read_shape_index(archive=archive, names=names)
+            stop_times_by_trip = self._read_stop_times(
+                archive=archive,
+                names=names,
+                valid_trip_ids=set(trips.keys()),
+            )
+            stop_records = self._read_stops(
+                archive=archive,
+                names=names,
+                referenced_stop_ids=_referenced_stop_ids(stop_times_by_trip),
+            )
         finally:
-            feed.close()
+            archive.close()
+            buffer.close()
 
         if not trips:
             LOGGER.info("gtfs_no_trips_for_operation_day", instance_id=instance.id, pipeline_id=pipeline.id)
@@ -225,9 +239,9 @@ class GtfsNominalPipeline(NominalPipelineBase):
             shape_index_count=len(shape_index),
         )
 
-    def _resolve_valid_service_ids(self, feed: "_GtfsArchive", operation_day: date) -> set[str]:
-        has_calendar = feed.has_file("calendar.txt")
-        has_calendar_dates = feed.has_file("calendar_dates.txt")
+    def _resolve_valid_service_ids(self, archive: zipfile.ZipFile, names: set[str], operation_day: date) -> set[str]:
+        has_calendar = self._has_file(names, "calendar.txt")
+        has_calendar_dates = self._has_file(names, "calendar_dates.txt")
         if not has_calendar and not has_calendar_dates:
             raise GtfsPipelineError("GTFS feed must include calendar.txt and/or calendar_dates.txt.")
 
@@ -243,7 +257,7 @@ class GtfsNominalPipeline(NominalPipelineBase):
                 5: "saturday",
                 6: "sunday",
             }[operation_day.weekday()]
-            for row in feed.iter_csv_rows("calendar.txt"):
+            for row in self._iter_csv_rows(archive, "calendar.txt"):
                 service_id = (row.get("service_id") or "").strip()
                 if not service_id:
                     continue
@@ -259,7 +273,7 @@ class GtfsNominalPipeline(NominalPipelineBase):
                 services.add(service_id)
 
         if has_calendar_dates:
-            for row in feed.iter_csv_rows("calendar_dates.txt"):
+            for row in self._iter_csv_rows(archive, "calendar_dates.txt"):
                 service_id = (row.get("service_id") or "").strip()
                 exception_date = _parse_gtfs_calendar_date((row.get("date") or "").strip())
                 exception_type = (row.get("exception_type") or "").strip()
@@ -273,11 +287,11 @@ class GtfsNominalPipeline(NominalPipelineBase):
 
         return services
 
-    def _read_agencies(self, feed: "_GtfsArchive") -> dict[str, _AgencyInfo]:
-        if not feed.has_file("agency.txt"):
+    def _read_agencies(self, archive: zipfile.ZipFile, names: set[str]) -> dict[str, _AgencyInfo]:
+        if not self._has_file(names, "agency.txt"):
             return {}
 
-        rows = list(feed.iter_csv_rows("agency.txt"))
+        rows = list(self._iter_csv_rows(archive, "agency.txt"))
         if not rows:
             return {}
 
@@ -297,13 +311,14 @@ class GtfsNominalPipeline(NominalPipelineBase):
 
     def _read_routes(
         self,
-        feed: "_GtfsArchive",
+        archive: zipfile.ZipFile,
+        names: set[str],
         agencies: dict[str, _AgencyInfo],
         pipeline: PipelineConfig,
         route_rules: tuple[FilterEntryConfig, ...],
         operator_rules: tuple[FilterEntryConfig, ...],
     ) -> dict[str, _RouteInfo]:
-        if not feed.has_file("routes.txt"):
+        if not self._has_file(names, "routes.txt"):
             raise GtfsPipelineError("GTFS feed is missing required file routes.txt.")
 
         fallback_agency_id = _parameter_as_str(
@@ -319,7 +334,7 @@ class GtfsNominalPipeline(NominalPipelineBase):
 
         default_agency = next(iter(agencies.values()), None)
         routes: dict[str, _RouteInfo] = {}
-        for row in feed.iter_csv_rows("routes.txt"):
+        for row in self._iter_csv_rows(archive, "routes.txt"):
             route_id = (row.get("route_id") or "").strip()
             if not route_id:
                 continue
@@ -353,15 +368,16 @@ class GtfsNominalPipeline(NominalPipelineBase):
 
     def _read_trips(
         self,
-        feed: "_GtfsArchive",
+        archive: zipfile.ZipFile,
+        names: set[str],
         valid_service_ids: set[str],
         allowed_route_ids: set[str],
     ) -> dict[str, _TripMeta]:
-        if not feed.has_file("trips.txt"):
+        if not self._has_file(names, "trips.txt"):
             raise GtfsPipelineError("GTFS feed is missing required file trips.txt.")
 
         trips: dict[str, _TripMeta] = {}
-        for row in feed.iter_csv_rows("trips.txt"):
+        for row in self._iter_csv_rows(archive, "trips.txt"):
             trip_id = (row.get("trip_id") or "").strip()
             route_id = (row.get("route_id") or "").strip()
             service_id = (row.get("service_id") or "").strip()
@@ -396,7 +412,7 @@ class GtfsNominalPipeline(NominalPipelineBase):
 
         return selected
 
-    def _read_shape_index(self, feed: "_GtfsArchive") -> dict[str, float]:
+    def _read_shape_index(self, archive: zipfile.ZipFile, names: set[str]) -> dict[str, float]:
         """Build a shape_id → total-distance-in-km index by streaming shapes.txt.
 
         Two complementary strategies are applied in a single streaming pass:
@@ -417,12 +433,12 @@ class GtfsNominalPipeline(NominalPipelineBase):
         The ``shape_dist_traveled`` strategy takes precedence when any non-zero
         value is available for a shape.
         """
-        if not feed.has_file("shapes.txt"):
+        if not self._has_file(names, "shapes.txt"):
             return {}
 
         states: dict[str, _ShapeIndexState] = {}
 
-        for row in feed.iter_csv_rows("shapes.txt"):
+        for row in self._iter_csv_rows(archive, "shapes.txt"):
             shape_id = (row.get("shape_id") or "").strip()
             if not shape_id:
                 continue
@@ -482,14 +498,15 @@ class GtfsNominalPipeline(NominalPipelineBase):
 
     def _read_stop_times(
         self,
-        feed: "_GtfsArchive",
+        archive: zipfile.ZipFile,
+        names: set[str],
         valid_trip_ids: set[str],
     ) -> dict[str, list[_StopTimeRow]]:
-        if not feed.has_file("stop_times.txt"):
+        if not self._has_file(names, "stop_times.txt"):
             raise GtfsPipelineError("GTFS feed is missing required file stop_times.txt.")
 
         rows_by_trip: dict[str, list[_StopTimeRow]] = {}
-        for row in feed.iter_csv_rows("stop_times.txt"):
+        for row in self._iter_csv_rows(archive, "stop_times.txt"):
             trip_id = (row.get("trip_id") or "").strip()
             if trip_id not in valid_trip_ids:
                 continue
@@ -516,14 +533,15 @@ class GtfsNominalPipeline(NominalPipelineBase):
 
     def _read_stops(
         self,
-        feed: "_GtfsArchive",
+        archive: zipfile.ZipFile,
+        names: set[str],
         referenced_stop_ids: set[str],
     ) -> list[StopRecord]:
-        if not feed.has_file("stops.txt"):
+        if not self._has_file(names, "stops.txt"):
             raise GtfsPipelineError("GTFS feed is missing required file stops.txt.")
 
         stops: list[StopRecord] = []
-        for row in feed.iter_csv_rows("stops.txt"):
+        for row in self._iter_csv_rows(archive, "stops.txt"):
             stop_id = (row.get("stop_id") or "").strip()
             if not stop_id:
                 continue
@@ -649,57 +667,60 @@ class GtfsNominalPipeline(NominalPipelineBase):
             schedule_relationship="UNKNOWN",
         )
 
-
-class _GtfsArchive:
-    def __init__(self, archive: zipfile.ZipFile, buffer: BytesIO) -> None:
-        self._archive = archive
-        self._buffer = buffer
-        self._names = set(archive.namelist())
-
-        missing_required_files = REQUIRED_GTFS_FILES - self._names
-        if missing_required_files:
-            missing = ", ".join(sorted(missing_required_files))
-            raise GtfsPipelineError(f"GTFS feed is missing required files: {missing}.")
-
-    @classmethod
-    def open_endpoint(
-        cls,
+    def _open_endpoint_archive(
+        self,
         endpoint: str,
         authentication: AuthenticationConfig | None,
-    ) -> "_GtfsArchive":
-        request = Request(endpoint)
-        for key, value in _build_auth_headers(authentication).items():
-            request.add_header(key, value)
+    ) -> tuple[zipfile.ZipFile, BytesIO, set[str]]:
+        """Download and open a GTFS ZIP archive from a remote endpoint."""
+        headers = self._build_auth_headers(authentication)
 
-        with urlopen(request, timeout=120) as response:
-            buffer = BytesIO()
-            while True:
-                chunk = response.read(65536)
-                if not chunk:
-                    break
-                buffer.write(chunk)
+        cert_filename: str | None = authentication.cert if authentication is not None else None
+        key_filename: str | None = authentication.key if authentication is not None else None
+
+        buffer = BytesIO()
+
+        try:
+            with requests.get(
+                endpoint, 
+                headers=headers, 
+                stream=True, 
+                timeout=120,
+                cert=(cert_filename, key_filename) if cert_filename and key_filename else None
+            ) as response:
+                response.raise_for_status()
+                for chunk in response.iter_content(chunk_size=65536):
+                    if chunk:
+                        buffer.write(chunk)
+        except requests.RequestException as exc:
+            raise GtfsPipelineError(f"Failed to download GTFS endpoint '{endpoint}'.") from exc
 
         buffer.seek(0)
         try:
             archive = zipfile.ZipFile(buffer)
         except zipfile.BadZipFile as exc:
+            buffer.close()
             raise GtfsPipelineError("GTFS endpoint did not return a valid ZIP archive.") from exc
 
-        return cls(archive=archive, buffer=buffer)
+        names = set(archive.namelist())
+        missing_required_files = REQUIRED_GTFS_FILES - names
+        if missing_required_files:
+            archive.close()
+            buffer.close()
+            missing = ", ".join(sorted(missing_required_files))
+            raise GtfsPipelineError(f"GTFS feed is missing required files: {missing}.")
 
-    def has_file(self, filename: str) -> bool:
-        return filename in self._names
+        return archive, buffer, names
 
-    def iter_csv_rows(self, filename: str) -> Iterator[dict[str, str]]:
-        with self._archive.open(filename, "r") as file_obj:
+    def _has_file(self, names: set[str], filename: str) -> bool:
+        return filename in names
+
+    def _iter_csv_rows(self, archive: zipfile.ZipFile, filename: str) -> Iterator[dict[str, str]]:
+        with archive.open(filename, "r") as file_obj:
             with TextIOWrapper(file_obj, encoding="utf-8-sig", newline="") as text_stream:
                 reader = csv.DictReader(text_stream)
                 for row in reader:
                     yield {key: value or "" for key, value in row.items()}
-
-    def close(self) -> None:
-        self._archive.close()
-        self._buffer.close()
 
 
 def _chunked(items: list[StopRecord] | list[RouteRecord] | list[TripRecord] | list[StopTimeRecord], size: int) -> Iterator[list[object]]:
@@ -709,22 +730,6 @@ def _chunked(items: list[StopRecord] | list[RouteRecord] | list[TripRecord] | li
         if not chunk:
             return
         yield chunk
-
-
-def _build_auth_headers(authentication: AuthenticationConfig | None) -> dict[str, str]:
-    if authentication is None:
-        return {}
-
-    if authentication.token:
-        return {"Authorization": f"Bearer {authentication.token}"}
-
-    if authentication.username and authentication.password:
-        raw = f"{authentication.username}:{authentication.password}".encode("utf-8")
-        encoded = base64.b64encode(raw).decode("ascii")
-        return {"Authorization": f"Basic {encoded}"}
-
-    return {}
-
 
 def _filter_value_matches(value: str, rules: tuple[FilterEntryConfig, ...]) -> bool:
     include_rules = [rule for rule in rules if rule.type == "include"]

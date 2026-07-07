@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import base64
 from datetime import date
 
 from processor.common.quality_report_service import QualityReportService
 from processor.loading.loading_service import LoadingService
 
-from ..runtime_config import PipelineConfig, InstanceConfig
+from ..runtime_config import AuthenticationConfig, PipelineConfig, InstanceConfig
 
 
 class PipelineBase(ABC):
@@ -24,6 +25,20 @@ class PipelineBase(ABC):
             instance: The instance configuration the pipeline belongs to.
             pipeline: The pipeline configuration, including period and processing options.
         """
+
+    def _build_auth_headers(self, authentication: AuthenticationConfig | None) -> dict[str, str]:
+        if authentication is None:
+            return {}
+
+        if authentication.token:
+            return {"Authorization": f"Bearer {authentication.token}"}
+
+        if authentication.username and authentication.password:
+            raw = f"{authentication.username}:{authentication.password}".encode("utf-8")
+            encoded = base64.b64encode(raw).decode("ascii")
+            return {"Authorization": f"Basic {encoded}"}
+
+        return {}
 
 
 class NominalPipelineBase(PipelineBase):

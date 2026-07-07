@@ -5,6 +5,8 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 import zipfile
 from zoneinfo import ZoneInfo
 
@@ -128,6 +130,44 @@ def make_pipeline(
 
 
 class GtfsNominalPipelineTests(unittest.IsolatedAsyncioTestCase):
+    class _FileResponse:
+        def __init__(self, payload: bytes) -> None:
+            self._payload = payload
+
+        def __enter__(self) -> "GtfsNominalPipelineTests._FileResponse":
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            return False
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def iter_content(self, chunk_size: int = 1) -> list[bytes]:
+            if chunk_size <= 0:
+                return [self._payload]
+            return [self._payload[index : index + chunk_size] for index in range(0, len(self._payload), chunk_size)]
+
+    def setUp(self) -> None:
+        self._original_requests_get = _gtfs_pipeline_module.requests.get
+        self._requests_get_patcher = patch.object(
+            _gtfs_pipeline_module.requests,
+            "get",
+            side_effect=self._requests_get_with_file_support,
+        )
+        self._requests_get_patcher.start()
+
+    def tearDown(self) -> None:
+        self._requests_get_patcher.stop()
+
+    def _requests_get_with_file_support(self, url: str, *args: object, **kwargs: object) -> object:
+        if url.startswith("file://"):
+            parsed = urlparse(url)
+            local_path = Path(url2pathname(parsed.path))
+            return self._FileResponse(local_path.read_bytes())
+
+        return self._original_requests_get(url, *args, **kwargs)
+
     async def test_pipeline_extracts_maps_and_loads_nominal_payload(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir_str:
             tmp_dir = Path(tmp_dir_str)

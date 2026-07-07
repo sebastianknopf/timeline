@@ -1,6 +1,10 @@
 .env
 config/config.yaml
 
+*.pem
+*.crt
+*.key
+
 # Python bytecode and caches
 __pycache__/
 *.pyc

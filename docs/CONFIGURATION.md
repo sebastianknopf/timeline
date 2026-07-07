@@ -88,6 +88,7 @@ Authentication supports exactly one of these shapes:
 
 - token authentication: `token`
 - basic credentials: `username` and `password`
+- certificate authentication (mTLS): `cert` and `key` specified by a cert and key filename inside the container
 
 If the endpoint does not require authentication, the `authentication` key can be omitted.
 
@@ -109,6 +110,7 @@ Minimum validation requirements:
 10. If `authentication` is present, it is either:
    - `{ token: <value> }`
    - `{ username: <value>, password: <value> }`
+   - `{ cert: <path>, key: <path> }`
 11. If `parameters` is present, it must be a YAML object (mapping). Its keys are pipeline-defined and may vary by pipeline name.
 12. Each pipeline has a `filter` object containing either `routes` or `operators`.
 13. If `filter` contains `routes`, each route filter must have non-empty `match`, `type` and may contain references to mapping files in `mapping`.
@@ -138,19 +140,16 @@ Optional high-frequency cadence for realtime pipelines:
 
 ## Mapping Directory
 
-The processor mounts a mapping root directory to `/etc/mapping` in the container.
-
-- Host mapping root is configured by environment variable `PROCESSOR_MAPPING_DIR`
-- Default value is the current project directory (`.`)
+The processor mounts a mapping root directory to `/etc/mapping` in the container. Default value is the current project directory (`.`) and can be set by ENV variable `PROCESSOR_MAPPING_DIR`.
 
 This allows mapping paths in `config.yaml` to be portable across local and container execution.
-## Environment Variables
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `PROCESSOR_DATABASE_URL` | yes | n/a | PostgreSQL connection URL used by the repository. |
-| `PROCESSOR_CONFIG_PATH` | no | `/app/config/config.yaml` | Absolute path to the processor YAML configuration file. |
-| `PROCESSOR_MAPPING_ROOT` | no | `/etc/mapping` | Root directory for resolving relative mapping file paths. |
-| `PROCESSOR_ALEMBIC_INI_PATH` | no | `/app/alembic.ini` | Path to the Alembic INI file used for database migrations. |
-| `PROCESSOR_TIMEZONE` | no | `UTC` | IANA timezone name (for example `Europe/Berlin`) used as the processor runtime timezone for scheduler and date/time handling. |
-``
+## Export Directory
+
+The processor mounts an export root directory to `/var/data/exports` in the container. This directory is the directory where exports are generated. Default value is the current project directory (`.`) and can be set by ENV variable `PROCESSOR_EXPORT_DIR`.
+
+This allows export paths in `config.yaml` to be portable across local and container exection.
+
+## Security Directory
+
+This directory is mounted to `/etc/security` inside the container and is meant to be used for client certificates or other authentication components. Default value is the current project directory (`.`) and can be set by ENV variable `PROCESSOR_SECURITY_DIR`.

@@ -34,6 +34,8 @@ class AuthenticationConfig:
     token: str | None = None
     username: str | None = None
     password: str | None = None
+    cert: str | None = None
+    key: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
