@@ -30,7 +30,9 @@ This pipeline uses these shared configuration keys:
 - `name`
 - `type` (must be `realtime` for this pipeline)
 - `cron`
+- `policy`
 - `endpoint`
+- `priority`
 - `timezone` (optional, but strictly recommended! Default is UTC)
 - `authentication` (optional)
 - `filter` (optional)
@@ -160,54 +162,5 @@ The GTFSRT-TRIPUPDATES pipeline should be implemented in streaming fashion end-t
 > **Limitation — actual distance is all-or-nothing:**
 > `act_total_distance` is derived at trip level using a binary rule: `SCHEDULED` trips receive the full `nom_total_distance` as their actual distance; all other trips (`UNKNOWN`, `CANCELLED`, …) receive `0.0`. This model does not distinguish trips that were operated in full from trips that were only partially operated (e.g. curtailed at an intermediate stop). A trip operated from stop 1 to stop 4 out of 10 nominal stops is attributed the same `act_total_distance` (`0.0`) as a fully cancelled trip, unless its `schedule_relationship` is explicitly `SCHEDULED`. Partial-distance accounting per stop segment is not supported in this version and requires a future design extension.
 
-### LoadingService — nominal matching and realtime field derivation
-
-`LoadingService.load_realtime_trip_and_stop_times` is the single owner of all nominal-matching and realtime field derivation logic. The pipeline hands it an unmatched `TripRecord` (with `act_total_distance=None`); the service returns nothing — it performs all writes itself. The internal execution order is:
-
-1. **Primary trip-id lookup** — `get_nominal_stop_times_for_trip(trip.trip_id)` looks up stop times using the `trip_id` supplied by the feed.
-2. **Alternative matching fallback** — when the primary lookup returns no rows (the feed's `trip_id` does not exist in `dim_trips`), `_resolve_nominal_trip_id` attempts a secondary lookup by `route_id` + `start_time` string against the nominal schedule. If this also finds no match, the update is discarded.
-3. **trip_id remapping** — when the fallback match succeeds, both `trip.trip_id` and all `stop_time.trip_id` values are rewritten to the resolved nominal `trip_id` before any further processing. All subsequent steps use this remapped identifier.
-4. **Nominal baseline merge** — `_apply_nominal_baseline` aligns realtime stop updates against the nominal stop sequence by `stop_sequence` and propagates the last known delay forward to stops that have no explicit update.
-5. **Stop-time normalization** — `_normalize_realtime_stop_times` resolves each stop's `act_arrival_time` and `act_departure_time` from absolute timestamps or delay offsets; mirrors the available side when only one exists.
-6. **Nominal trip fetch** — `get_nominal_trip(trip.trip_id)` reads the full stored `TripRecord` from `dim_trips` using the **already-remapped** `trip_id`. This is intentional: a trip matched via the alternative fallback in step 2–3 will be fetched here by its nominal `trip_id`, not by the feed's original identifier. The stored `TripRecord` carries the authoritative `nom_total_distance` as written by the nominal pipeline (including any value derived from the shape index).
-7. **Realtime trip field derivation** — `_derive_realtime_trip_fields` computes `act_start_time`, `act_end_time`, `nom_total_distance`, and `act_total_distance`:
-   - `nom_total_distance`: the value from the nominal `TripRecord` fetched in step 6 is preferred; `max(distance_from_start)` over nominal stop times is used as fallback only when no stored nominal trip was found.
-   - `act_total_distance`: `SCHEDULED` → equal to `nom_total_distance`; all other relationships (`UNKNOWN`, `CANCELLED`, …) → `0.0`.
-   - `act_start_time`: anchored to the first nominal stop (prefer its `act_departure_time`; fallback to its `nom_departure_time`).
-   - `act_end_time`: derived from the last entry in the normalized stop-time list.
-8. **Persistence** — `upsert_realtime_trip` and `upsert_realtime_stop_times` write the derived values using a pure `UPDATE` on `dim_trips` (no insert, so phantom rows are impossible) and an upsert on `fact_stop_times`.
-
-### End-to-end flow
-
-1. Open endpoint stream and decode protobuf feed message in streaming mode.
-2. Iterate TripUpdate entities incrementally.
-3. Resolve trip identity and skip closed/completed trips.
-4. Iterate stop_time_update rows and resolve realtime timestamps for all rows.
-5. Build bounded upsert batches for mutable trip-level and stop-level fields.
-6. Send batches to central load service; repeat on next scheduler tick.
-
-### Streaming requirements
-
-- No full historical snapshot should be materialized in memory.
-- Parsing and transformation should be iterator-based over feed entities.
-- Matching indexes and dedup caches should be bounded and short-lived per run.
-- Backpressure from load service should throttle batch emission.
-
-### State and idempotency
-
-- Upserts must be idempotent for repeated feed snapshots.
-- Latest-wins ordering should use feed header timestamp and/or TripUpdate timestamp as primary freshness hints.
-- If timestamps are equal, deterministic tie-breakers (stable entity ordering) should be applied.
-
-### Import scope per run
-
-- Scope is realtime trip updates in the current feed snapshot.
-- For each trip update, `operation_day_date` is `TripDescriptor.start_date` when present, otherwise current calendar date in `PROCESSOR_TIMEZONE`.
-- Only mutable realtime state is processed.
-- Closed trips are excluded from transformation.
-
-### Error handling and observability
-
-- Reject unresolved or invalid trip descriptors with structured diagnostics.
-- Report counters for: entities received, entities filtered, completed-trip skips, and successful upserts.
-- Log late/out-of-order updates when they lose latest-wins arbitration.
+> **Added Trips not supported:**
+> Trips with schedule relationship `ADDED` (or its newer pendants) are currently NOT imported.
