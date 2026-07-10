@@ -40,11 +40,13 @@ class TimelinePipelineExecutorTests(unittest.IsolatedAsyncioTestCase):
         mapping_service = RecordingMappingService()
         nominal_pipeline = RecordingNominalPipeline()
         realtime_pipeline = RecordingRealtimePipeline()
+        siri_et_light_pipeline = RecordingRealtimePipeline()
 
         executor = TimelinePipelineExecutor(
             mapping_service=mapping_service,
             gtfs_nominal_pipeline=nominal_pipeline,
             gtfs_realtime_pipeline=realtime_pipeline,
+            siri_et_light_pipeline=siri_et_light_pipeline
         )
 
         pipeline = PipelineConfig(

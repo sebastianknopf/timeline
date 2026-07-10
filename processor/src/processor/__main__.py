@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from alembic import command
 from alembic.config import Config
+from processor.pipelines.siri_et_light_pipeline import SiriEtLightPipeline
 from processor.repository.intf_timeline_repository import TimelineRepositoryInterface
 import structlog
 from sqlalchemy import create_engine
@@ -122,6 +123,11 @@ async def _run() -> None:
         mapping_service=mapping_service,
         processor_timezone_name=processor_timezone_name,
     )
+    siri_et_light_pipeline = SiriEtLightPipeline(
+        loading_service=loading_service,
+        mapping_service=mapping_service,
+        processor_timezone_name=processor_timezone_name,
+    )
 
     scheduler = PipelineScheduler(
         config=parsed_config,
@@ -129,6 +135,7 @@ async def _run() -> None:
             mapping_service=mapping_service,
             gtfs_nominal_pipeline=gtfs_nominal_pipeline,
             gtfs_realtime_pipeline=gtfs_realtime_pipeline,
+            siri_et_light_pipeline=siri_et_light_pipeline
         ),
         export_executor=TimelineExportExecutor(
             timeline_export=TimelineExport(repository=repository),
