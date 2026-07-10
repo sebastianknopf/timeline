@@ -38,6 +38,7 @@ class ConfigurationVerifier:
         self._known_pipeline_names = known_pipeline_names or {
             "gtfs",
             "gtfsrt-tripupdates",
+            "siri-et-light"
         }
         self._known_export_names = known_export_names or {
             "timeline-export",
