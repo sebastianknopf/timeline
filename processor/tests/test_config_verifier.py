@@ -422,6 +422,102 @@ instance:
             self.assertEqual(1, len(parsed.instances[0].pipelines))
             self.assertIsNone(parsed.instances[0].pipelines[0].filter)
 
+    def test_load_and_validate_reads_pipeline_mapping(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            mapping_root = tmp_dir / "mapping"
+            mapping_root.mkdir()
+
+            stops_file = mapping_root / "stops.csv"
+            routes_file = mapping_root / "routes.csv"
+            stops_file.write_text("key,value\nS1,STOP-1\n", encoding="utf-8")
+            routes_file.write_text("key,value\nR1,ROUTE-1\n", encoding="utf-8")
+
+            config_file = tmp_dir / "config.yaml"
+            config_file.write_text(
+                """
+instance:
+  - id: demo
+    pipeline:
+      - id: nominal-main
+        name: gtfs
+        type: nominal
+        cron: "0 2 * * *"
+        endpoint: "https://example.test/nominal"
+        mapping:
+          stops: "stops.csv"
+          routes: "routes.csv"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            verifier = ConfigurationVerifier(mapping_root=mapping_root)
+            parsed = verifier.load_and_validate(config_file)
+
+            pipeline_mapping = parsed.instances[0].pipelines[0].mapping
+            self.assertIsNotNone(pipeline_mapping)
+            self.assertEqual(stops_file.resolve(), pipeline_mapping.stops)
+            self.assertEqual(routes_file.resolve(), pipeline_mapping.routes)
+
+    def test_load_and_validate_rejects_pipeline_mapping_outside_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            mapping_root = tmp_dir / "mapping"
+            mapping_root.mkdir()
+
+            outside_file = tmp_dir / "outside.csv"
+            outside_file.write_text("key,value\nR1,ROUTE-1\n", encoding="utf-8")
+
+            config_file = tmp_dir / "config.yaml"
+            config_file.write_text(
+                f"""
+instance:
+  - id: demo
+    pipeline:
+      - id: nominal-main
+        name: gtfs
+        type: nominal
+        cron: "0 2 * * *"
+        endpoint: "https://example.test/nominal"
+        mapping:
+          routes: "{outside_file.as_posix()}"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            verifier = ConfigurationVerifier(mapping_root=mapping_root)
+
+            with self.assertRaises(ConfigurationError):
+                verifier.load_and_validate(config_file)
+
+    def test_load_and_validate_rejects_pipeline_mapping_with_unsupported_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            mapping_root = tmp_dir / "mapping"
+            mapping_root.mkdir()
+
+            config_file = tmp_dir / "config.yaml"
+            config_file.write_text(
+                """
+instance:
+  - id: demo
+    pipeline:
+      - id: nominal-main
+        name: gtfs
+        type: nominal
+        cron: "0 2 * * *"
+        endpoint: "https://example.test/nominal"
+        mapping:
+          lines: "routes.csv"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            verifier = ConfigurationVerifier(mapping_root=mapping_root)
+
+            with self.assertRaises(ConfigurationError):
+                verifier.load_and_validate(config_file)
+
 
 if __name__ == "__main__":
     unittest.main()

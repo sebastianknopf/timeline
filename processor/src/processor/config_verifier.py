@@ -166,6 +166,10 @@ class ConfigurationVerifier:
         )
 
         filter_config = self._parse_filter(raw_pipeline.get("filter"), pipeline_id)
+        mapping_config = self._parse_pipeline_mapping(
+            raw_pipeline.get("mapping"),
+            pipeline_id,
+        )
 
         return PipelineConfig(
             id=pipeline_id,
@@ -179,8 +183,49 @@ class ConfigurationVerifier:
             authentication=authentication,
             parameters=parameters,
             filter=filter_config,
-            mapping=None,
+            mapping=mapping_config,
         )
+
+    def _parse_pipeline_mapping(
+        self,
+        raw_mapping: Any,
+        pipeline_id: str,
+    ) -> MappingConfig | None:
+        if raw_mapping is None:
+            return None
+
+        if not isinstance(raw_mapping, dict):
+            raise ConfigurationError(
+                f"Pipeline '{pipeline_id}' mapping must be a YAML object."
+            )
+
+        allowed_keys = {"stops", "routes"}
+        unexpected = set(raw_mapping.keys()) - allowed_keys
+        if unexpected:
+            unexpected_keys = ", ".join(sorted(unexpected))
+            raise ConfigurationError(
+                f"Pipeline '{pipeline_id}' mapping contains unsupported keys: {unexpected_keys}."
+            )
+
+        stops_path = self._validate_mapping_csv(
+            self._resolve_mapping_path(
+                raw_mapping.get("stops"),
+                pipeline_id,
+                "stops",
+            )
+        )
+        routes_path = self._validate_mapping_csv(
+            self._resolve_mapping_path(
+                raw_mapping.get("routes"),
+                pipeline_id,
+                "routes",
+            )
+        )
+
+        if stops_path is None and routes_path is None:
+            return None
+
+        return MappingConfig(stops=stops_path, routes=routes_path)
 
     def _parse_export(self, instance_id: str, raw_export: Any) -> ExportConfig:
         if not isinstance(raw_export, dict):
