@@ -2580,6 +2580,241 @@ class LoadingServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("X", reported_issues[0].assessment_value)
         self.assertEqual("B", reported_issues[1].assessment_value)
 
+    async def test_realtime_loading_matches_stops_by_stop_id_when_sequences_differ(self) -> None:
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        operation_day = date(2026, 6, 24)
+        repository.nominal_stop_times = [
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-stop-id-match",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=datetime(2026, 6, 24, 8, 0, tzinfo=UTC),
+                nom_departure_time=datetime(2026, 6, 24, 8, 1, tzinfo=UTC),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-stop-id-match",
+                stop_id="B",
+                distance_from_start=1.0,
+                nom_arrival_time=datetime(2026, 6, 24, 8, 2, tzinfo=UTC),
+                nom_departure_time=datetime(2026, 6, 24, 8, 3, tzinfo=UTC),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+        ]
+
+        trip = TripRecord(
+            operation_day_date=operation_day,
+            trip_id="trip-stop-id-match",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+            schedule_relationship="SCHEDULED",
+            _t_is_complete_stop_sequence=True,
+        )
+
+        stop_times = [
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-stop-id-match",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=datetime(2026, 6, 24, 8, 0, tzinfo=UTC),
+                nom_departure_time=datetime(2026, 6, 24, 8, 1, tzinfo=UTC),
+                act_arrival_time=datetime(2026, 6, 24, 8, 4, tzinfo=UTC),
+                act_departure_time=datetime(2026, 6, 24, 8, 4, tzinfo=UTC),
+                stop_sequence=10,
+            ),
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-stop-id-match",
+                stop_id="B",
+                distance_from_start=1.0,
+                nom_arrival_time=datetime(2026, 6, 24, 8, 2, tzinfo=UTC),
+                nom_departure_time=datetime(2026, 6, 24, 8, 3, tzinfo=UTC),
+                act_arrival_time=datetime(2026, 6, 24, 8, 5, tzinfo=UTC),
+                act_departure_time=datetime(2026, 6, 24, 8, 5, tzinfo=UTC),
+                stop_sequence=20,
+            ),
+        ]
+
+        reported_issues: list[RealtimeLoadingQualityIssue] = []
+
+        result = await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=stop_times,
+            issue_handler=reported_issues.append,
+        )
+
+        self.assertEqual(RealtimeLoadingResult.SUCCESS_DIRECT, result)
+        self.assertEqual([], reported_issues)
+        self.assertEqual(2, len(repository.realtime_stop_times))
+        self.assertEqual(["A", "B"], [item.stop_id for item in repository.realtime_stop_times])
+        self.assertEqual([1, 2], [item.stop_sequence for item in repository.realtime_stop_times])
+        self.assertEqual(datetime(2026, 6, 24, 8, 4, tzinfo=UTC), repository.realtime_trips[0].act_start_time)
+        self.assertEqual(datetime(2026, 6, 24, 8, 5, tzinfo=UTC), repository.realtime_trips[0].act_end_time)
+
+    async def test_realtime_loading_loop_trip_disambiguates_repeated_stop_by_sequence(self) -> None:
+        """A loop trip visiting stop A twice must match each realtime update to the correct nominal entry.
+
+        The nominal sequence is A(1) → B(2) → A(3) → C(4).  The realtime feed uses
+        different stop sequences for the second A visit and for C, so the matching must
+        rely purely on stop_id combined with the stop_sequence lower-bound guard.
+        """
+        repository = RecordingRepository()
+        service = LoadingService(repository=repository)
+
+        operation_day = date(2026, 6, 24)
+        nom_base = datetime(2026, 6, 24, 8, 0, tzinfo=UTC)
+
+        repository.nominal_stop_times = [
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-loop",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-loop",
+                stop_id="B",
+                distance_from_start=1.0,
+                nom_arrival_time=nom_base + timedelta(minutes=5),
+                nom_departure_time=nom_base + timedelta(minutes=6),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=2,
+            ),
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-loop",
+                stop_id="A",
+                distance_from_start=2.0,
+                nom_arrival_time=nom_base + timedelta(minutes=10),
+                nom_departure_time=nom_base + timedelta(minutes=11),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=3,
+            ),
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-loop",
+                stop_id="C",
+                distance_from_start=3.0,
+                nom_arrival_time=nom_base + timedelta(minutes=15),
+                nom_departure_time=nom_base + timedelta(minutes=16),
+                act_arrival_time=None,
+                act_departure_time=None,
+                stop_sequence=4,
+            ),
+        ]
+
+        trip = TripRecord(
+            operation_day_date=operation_day,
+            trip_id="trip-loop",
+            route_id="route-1",
+            operator_id=None,
+            operator_name=None,
+            schedule_relationship="SCHEDULED",
+        )
+
+        # Realtime stop sequences differ from the nominal ones for the second A and C.
+        delay_first_a = timedelta(minutes=2)
+        delay_second_a = timedelta(minutes=3)
+        stop_times = [
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-loop",
+                stop_id="A",
+                distance_from_start=0.0,
+                nom_arrival_time=nom_base,
+                nom_departure_time=nom_base + timedelta(minutes=1),
+                act_arrival_time=nom_base + delay_first_a,
+                act_departure_time=nom_base + timedelta(minutes=1) + delay_first_a,
+                stop_sequence=1,
+            ),
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-loop",
+                stop_id="B",
+                distance_from_start=1.0,
+                nom_arrival_time=nom_base + timedelta(minutes=5),
+                nom_departure_time=nom_base + timedelta(minutes=6),
+                act_arrival_time=nom_base + timedelta(minutes=5) + delay_first_a,
+                act_departure_time=nom_base + timedelta(minutes=6) + delay_first_a,
+                stop_sequence=2,
+            ),
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-loop",
+                stop_id="A",
+                distance_from_start=2.0,
+                nom_arrival_time=nom_base + timedelta(minutes=10),
+                nom_departure_time=nom_base + timedelta(minutes=11),
+                act_arrival_time=nom_base + timedelta(minutes=10) + delay_second_a,
+                act_departure_time=nom_base + timedelta(minutes=11) + delay_second_a,
+                stop_sequence=7,  # intentionally different from nominal seq=3
+            ),
+            StopTimeRecord(
+                operation_day_date=operation_day,
+                trip_id="trip-loop",
+                stop_id="C",
+                distance_from_start=3.0,
+                nom_arrival_time=nom_base + timedelta(minutes=15),
+                nom_departure_time=nom_base + timedelta(minutes=16),
+                act_arrival_time=nom_base + timedelta(minutes=15) + delay_second_a,
+                act_departure_time=nom_base + timedelta(minutes=16) + delay_second_a,
+                stop_sequence=9,  # intentionally different from nominal seq=4
+            ),
+        ]
+
+        result = await service.load_realtime_trip_and_stop_times(
+            instance_id="demo",
+            trip=trip,
+            stop_times=stop_times,
+        )
+
+        self.assertEqual(RealtimeLoadingResult.SUCCESS_DIRECT, result)
+        self.assertEqual(4, len(repository.realtime_stop_times))
+
+        by_sequence = {item.stop_sequence: item for item in repository.realtime_stop_times}
+
+        # All four stops must be present and carry nominal sequences.
+        self.assertIn(1, by_sequence)
+        self.assertIn(2, by_sequence)
+        self.assertIn(3, by_sequence)
+        self.assertIn(4, by_sequence)
+
+        # First visit to A uses the +2 min delay.
+        self.assertEqual(
+            nom_base + delay_first_a,
+            by_sequence[1].act_arrival_time,
+        )
+        # Second visit to A (seq=3) must use the second realtime A record (+3 min), not the first.
+        self.assertEqual(
+            nom_base + timedelta(minutes=10) + delay_second_a,
+            by_sequence[3].act_arrival_time,
+        )
+        # C is matched to nominal seq=4 regardless of the realtime seq=9.
+        self.assertEqual("C", by_sequence[4].stop_id)
+        self.assertEqual(
+            nom_base + timedelta(minutes=15) + delay_second_a,
+            by_sequence[4].act_arrival_time,
+        )
+
     async def test_realtime_loading_callback_emits_no_nominal_trip_issue(self) -> None:
         repository = RecordingRepository()
         service = LoadingService(repository=repository)

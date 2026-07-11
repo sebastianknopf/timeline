@@ -268,7 +268,21 @@ class LoadingService:
         """Apply the nominal baseline to the realtime stop times, propagating delays forward where necessary.
         This method also checks for unexpected and missing stops in the realtime feed compared to the nominal baseline.
         If an issue_handler is provided, it will be called with any detected quality issues.
-        
+
+        Matching rules applied during the merge:
+
+        - A realtime stop is discarded when its stop_id is not present anywhere in the
+          nominal stop sequence. ADDED stops (schedule_relationship == "ADDED") are
+          excluded from discarding to allow future in-place insertion support — they are
+          not yet written into the merged output.
+        - Stop ID is the sole criterion for associating a realtime record with a nominal
+          baseline entry. Stop sequence is not used for identification.
+        - When the same stop_id appears more than once in the nominal sequence (loop
+          trips), a realtime candidate is only eligible for a nominal baseline entry
+          whose stop_sequence is less than or equal to the realtime record's
+          stop_sequence.  Candidates are consumed in ascending stop_sequence order so
+          each realtime record is matched at most once.
+
         Args:
             stop_times (list[StopTimeRecord]): The list of realtime stop times to be processed
             nominal_stop_times (list[StopTimeRecord]): The list of nominal stop times to be used as a baseline
@@ -285,62 +299,88 @@ class LoadingService:
             return stop_times
 
         if issue_handler is not None:
-            # if the issue handler is set, check for unexpected and missing stops in the realtime feed compared to the nominal baseline
-
-            # check for unexpected stops ...
+            # check for unexpected stops: stop_id absent from the nominal stop sequence, excluding ADDED
             unexpected_realtime_stops = [
                 rt
                 for rt in stop_times
                 if (
                     rt.schedule_relationship != "ADDED"
-                    and not any(
-                        ns.stop_id == rt.stop_id
-                        for ns in nominal_stop_times
-                    )
+                    and not any(ns.stop_id == rt.stop_id for ns in nominal_stop_times)
                 )
             ]
 
             for unexpected_stop in unexpected_realtime_stops:
                 issue_handler(RealtimeLoadingQualityIssue(issue_type=QualityIssue.UnexpectedStopFound, assessment_value=unexpected_stop.stop_id))
-            
-            # check for missing stops ...
-            # if the realtime feed is expected to be a complete stop sequence
+
+            # check for missing stops (only when the feed is expected to be a complete stop sequence)
             if realtime_is_complete_stop_sequence:
                 missing_realtime_stops = [
                     ns
                     for ns in nominal_stop_times
-                    if not any(
-                        rt.stop_sequence == ns.stop_sequence
-                        and rt.stop_id == ns.stop_id
-                        for rt in stop_times
-                    )
+                    if not any(rt.stop_id == ns.stop_id for rt in stop_times)
                 ]
 
                 for missing_stop in missing_realtime_stops:
                     issue_handler(RealtimeLoadingQualityIssue(issue_type=QualityIssue.ExpectedStopMissing, assessment_value=missing_stop.stop_id))
-        
-        # If we have no realtime data, there's nothing to merge at all. Return the nominal baseline as-is.
-        # Important: This has to be done after the quality check in order to report missing stops when the realtime feed is expected to be a complete stop sequence.
+
+        # If we have no realtime data, return the nominal baseline unchanged.
+        # This must come after quality checks so missing stops are reported even when the realtime feed is empty.
         if not stop_times:
             return nominal_stop_times
-        
-        # apply the nominal baseline to the realtime stop times, propagating delays forward where necessary
-        realtime_by_sequence: dict[int, StopTimeRecord] = {item.stop_sequence: item for item in stop_times}
+
+        nominal_stop_ids: set[str] = {ns.stop_id for ns in nominal_stop_times}
+
+        # Discard realtime stops whose stop_id is not present in the nominal stop sequence.
+        # ADDED stops are not discarded so future placement support can be added here
+        # without changing this method, but they are not yet written into the merged output.
+        realtime_in_nominal = [
+            rt for rt in stop_times
+            if rt.stop_id in nominal_stop_ids and rt.schedule_relationship != "ADDED"
+        ]
+
+        # Build a per-stop-id candidate list sorted by stop_sequence ascending.
+        # Sorting enables deterministic, ordered consumption for loop trips.
+        realtime_by_stop_id: dict[str, list[StopTimeRecord]] = {}
+        for rt in realtime_in_nominal:
+            realtime_by_stop_id.setdefault(rt.stop_id, []).append(rt)
+        for candidates in realtime_by_stop_id.values():
+            candidates.sort(key=lambda r: r.stop_sequence)
+
+        # Monotonically advancing pointer into each stop_id's candidate list.
+        consume_index: dict[str, int] = {stop_id: 0 for stop_id in realtime_by_stop_id}
+
         ordered_nominal = sorted(nominal_stop_times, key=lambda s: s.stop_sequence)
 
         merged: list[StopTimeRecord] = []
         last_arrival_delay_s: int | None = None
         last_departure_delay_s: int | None = None
         last_schedule_relationship: str | None = None
+        explicit_count: int = 0
 
         for baseline in ordered_nominal:
-            record = realtime_by_sequence.get(baseline.stop_sequence)
+            record: StopTimeRecord | None = None
+            candidates = realtime_by_stop_id.get(baseline.stop_id)
+
+            if candidates is not None:
+                idx = consume_index[baseline.stop_id]
+                # Skip candidates whose stop_sequence is below the nominal threshold.
+                # These are either already consumed or belong to an earlier loop iteration.
+                while idx < len(candidates) and candidates[idx].stop_sequence < baseline.stop_sequence:
+                    idx += 1
+                consume_index[baseline.stop_id] = idx
+                if idx < len(candidates):
+                    record = candidates[idx]
+                    consume_index[baseline.stop_id] = idx + 1
 
             if record is not None:
-                # Explicit realtime update: apply nominal baseline values.
+                explicit_count += 1
+                # Explicit realtime update: normalize onto the nominal baseline values.
                 merged.append(
                     replace(
                         record,
+                        trip_id=baseline.trip_id,
+                        stop_id=baseline.stop_id,
+                        stop_sequence=baseline.stop_sequence,
                         nom_arrival_time=baseline.nom_arrival_time,
                         nom_departure_time=baseline.nom_departure_time,
                         distance_from_start=baseline.distance_from_start,
@@ -353,7 +393,6 @@ class LoadingService:
                     last_arrival_delay_s = round(
                         (record.act_arrival_time - baseline.nom_arrival_time).total_seconds()
                     )
-
                 elif record.arrival_delay_seconds is not None:
                     last_arrival_delay_s = record.arrival_delay_seconds
 
@@ -361,19 +400,15 @@ class LoadingService:
                     last_departure_delay_s = round(
                         (record.act_departure_time - baseline.nom_departure_time).total_seconds()
                     )
-
                 elif record.departure_delay_seconds is not None:
                     last_departure_delay_s = record.departure_delay_seconds
 
                 last_schedule_relationship = record.schedule_relationship
 
             elif last_arrival_delay_s is not None or last_departure_delay_s is not None:
-                
                 # No explicit update for this stop, but a preceding update provides a
                 # propagation basis.  Synthesize a stop-time record by applying the
-                # tracked delay to the nominal baseline.  Schedule relationship is always
-                # the last_schedule_relationship for propagated stops; an explicit update for the same stop
-                # in a later position in this feed would override this value.
+                # tracked delay to the nominal baseline.
                 merged.append(
                     StopTimeRecord(
                         operation_day_date=baseline.operation_day_date,
@@ -391,7 +426,6 @@ class LoadingService:
                     )
                 )
 
-        explicit_count = sum(1 for b in ordered_nominal if realtime_by_sequence.get(b.stop_sequence) is not None)
         propagated_count = len(merged) - explicit_count
         skipped_count = len(ordered_nominal) - len(merged)
 
