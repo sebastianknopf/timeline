@@ -184,11 +184,13 @@ class InMemorySiriEtLightPipeline(SiriEtLightPipeline):
 _SIRI_NS = "http://www.siri.org.uk/siri"
 
 
-def _siri_xml(journeys: str) -> bytes:
+def _siri_xml(journeys: str, response_timestamp: str | None = None) -> bytes:
+    ts_element = f'    <ResponseTimestamp>{response_timestamp}</ResponseTimestamp>\n' if response_timestamp else ''
     xml = (
         f'<?xml version="1.0" encoding="UTF-8"?>\n'
         f'<Siri xmlns="{_SIRI_NS}" version="2.0">\n'
         f'  <ServiceDelivery>\n'
+        f'{ts_element}'
         f'    <EstimatedTimetableDelivery>\n'
         f'      <EstimatedJourneyVersionFrame>\n'
         f'{journeys}\n'
@@ -750,6 +752,27 @@ class SiriEtLightPipelineTests(unittest.IsolatedAsyncioTestCase):
         await siri_pipeline.execute(instance=_INSTANCE, pipeline=_PIPELINE)
 
         self.assertEqual(0, len(loading_service.calls))
+
+    async def test_response_timestamp_from_service_delivery_is_used_as_age(self) -> None:
+        """A past ResponseTimestamp must produce a positive age_seconds in the request record."""
+        payload = _siri_xml(_journey(calls=_two_calls()), response_timestamp="2020-01-01T00:00:00+00:00")
+        siri_pipeline, loading_service = self._make_pipeline(payload=payload)
+        repository: RecordingRepository = loading_service._repository  # type: ignore[attr-defined]
+        await siri_pipeline.execute(instance=_INSTANCE, pipeline=_PIPELINE)
+
+        self.assertEqual(1, len(repository.requests))
+        _, request = repository.requests[0]
+        self.assertGreater(request.age_seconds, 0)
+
+    async def test_missing_response_timestamp_produces_zero_age(self) -> None:
+        """When ResponseTimestamp is absent, age_seconds must be 0 in the request record."""
+        siri_pipeline, loading_service = self._make_pipeline()
+        repository: RecordingRepository = loading_service._repository  # type: ignore[attr-defined]
+        await siri_pipeline.execute(instance=_INSTANCE, pipeline=_PIPELINE)
+
+        self.assertEqual(1, len(repository.requests))
+        _, request = repository.requests[0]
+        self.assertEqual(0, request.age_seconds)
 
     async def test_request_is_submitted_after_successful_execution(self) -> None:
         siri_pipeline, loading_service = self._make_pipeline()

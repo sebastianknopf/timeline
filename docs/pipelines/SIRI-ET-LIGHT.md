@@ -75,6 +75,7 @@ During the execution, the pipeline respects the optional `filter` parameters. Fi
 | A15 | `EstimatedVehicleJourney.IsCompleteStopSequence` states that the `EstimatedCalls` structure is a complete set of stop times seen from the data producers perspective. | Indicate this field for `_t_is_complete_stop_sequence` for quality monitoring. |
 | A16 | `EstimatedVehicleJourney.OriginRef` and `EstimatedVehicleJourney.DestinationRef` are only used as fallback when the first and last stop cannot be derived because `EstimatedVehicleJourney.IsCompleteStopSequence` is false or not set. | Determine first and last stop for `_t_scheduled_start_stop_id` and `_t_scheduled_end_stop_id` for later matching against the nominal timetable. |
 | A17 | Added trips and stop times are completely discarded. | Both types are not supported currently. Don't spam the database ... |
+| A18 | `/ServiceDelivery.ResponseTimestamp` is considered as age of the data when the request was made. | Report 'age of the data' in quality monitoring. |
 
 ## Transformations
 

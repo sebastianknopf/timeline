@@ -83,6 +83,13 @@ class SiriEtLightPipeline(RealtimePipelineBase):
             root = self._parse_xml(payload)
             ns = _detect_namespace(root)
 
+            response_timestamp = _extract_response_timestamp(root, ns, self._processor_timezone)
+            age_seconds: int = (
+                max(0, round((now_utc - response_timestamp).total_seconds()))
+                if response_timestamp is not None
+                else 0
+            )
+
             journey_count = 0
             loaded_direct_trip_count = 0
             loaded_matched_trip_count = 0
@@ -339,6 +346,7 @@ class SiriEtLightPipeline(RealtimePipelineBase):
                 num_entities=journey_count,
                 loaded_direct_trip_count=loaded_direct_trip_count,
                 loaded_matched_trip_count=loaded_matched_trip_count,
+                age_seconds=age_seconds,
                 status_code=200,
             )
 
@@ -701,6 +709,20 @@ def _find_element(element: ET.Element, ns: dict[str, str], *path: str) -> ET.Ele
         current = found
 
     return current
+
+
+def _extract_response_timestamp(
+    root: ET.Element,
+    ns: dict[str, str],
+    processor_timezone: ZoneInfo,
+) -> datetime | None:
+    """Extract ResponseTimestamp from ServiceDelivery and parse it as a datetime."""
+    
+    service_delivery = _find_element(root, ns, "ServiceDelivery")
+    if service_delivery is None:
+        return None
+    
+    return _parse_iso_datetime(_find_text(service_delivery, ns, "ResponseTimestamp"), processor_timezone)
 
 
 def _iter_estimated_vehicle_journeys(
