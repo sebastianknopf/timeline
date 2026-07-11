@@ -18,8 +18,8 @@ instance:
             - match: "*-route2"
               type: "exclude"
               mapping:
-                stops: "mapping/stops2.csv"
-                routes: "mapping/routes2.csv"
+                stops: "/etc/mapping/stops2.csv"
+                routes: "/etc/mapping/routes2.csv"
         parameters:
           fallback_agency_id: "UNKNOWN-AGENCY"
           fallback_agency_name: "Unknown Agency"
@@ -43,8 +43,8 @@ instance:
             - match: "*-operator2"
               type: "exclude"
               mapping:
-                stops: "mapping/stops2.csv"
-                routes: "mapping/routes2.csv"
+                stops: "/etc/mapping/stops2.csv"
+                routes: "/etc/mapping/routes2.csv"
         authentication:
           cert: "security/client.crt"
           key: "security/client.key"

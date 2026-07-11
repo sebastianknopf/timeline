@@ -5,6 +5,8 @@ config/config.yaml
 *.crt
 *.key
 
+mapping/
+
 # Python bytecode and caches
 __pycache__/
 *.pyc

@@ -124,6 +124,7 @@ class SiriEtLightPipeline(RealtimePipelineBase):
                         instance_id=instance.id,
                         pipeline_id=pipeline.id,
                     )
+
                     continue
 
                 # A9: LineRef is the route ID
@@ -139,6 +140,7 @@ class SiriEtLightPipeline(RealtimePipelineBase):
                             trip_id=trip_id,
                             route_id=route_id,
                         )
+
                         continue
 
                 # --- Operator filter ---
@@ -151,6 +153,7 @@ class SiriEtLightPipeline(RealtimePipelineBase):
                             trip_id=trip_id,
                             operator_ref=operator_ref,
                         )
+
                         continue
 
                 # --- Schedule relationship (T6) ---
@@ -172,6 +175,7 @@ class SiriEtLightPipeline(RealtimePipelineBase):
                         pipeline_id=pipeline.id,
                         trip_id=trip_id,
                     )
+                    
                     continue
 
                 if is_cancelled:
@@ -191,6 +195,7 @@ class SiriEtLightPipeline(RealtimePipelineBase):
                         pipeline_id=pipeline.id,
                         trip_id=trip_id,
                     )
+
                     continue
 
                 # --- Operation day (T2 / A2) ---
@@ -398,10 +403,12 @@ class SiriEtLightPipeline(RealtimePipelineBase):
                     status_code,
                     f"HTTP request to {endpoint} failed with status code {status_code}",
                 )
+            
             return response.content
 
     def _parse_xml(self, payload: bytes) -> ET.Element:
         """Parse raw bytes into an ElementTree root element."""
+        
         try:
             return ET.fromstring(payload)
         except ET.ParseError as exc:
@@ -417,6 +424,7 @@ class SiriEtLightPipeline(RealtimePipelineBase):
         dpl_appendix_pattern: str | None,
     ) -> list[StopTimeRecord]:
         """Build stop time records from SIRI EstimatedCall / RecordedCall elements."""
+        
         records: list[StopTimeRecord] = []
 
         for index, call in enumerate(raw_calls):
@@ -447,6 +455,7 @@ class SiriEtLightPipeline(RealtimePipelineBase):
             aimed_arrival = _parse_iso_datetime(
                 _find_text(call, ns, "AimedArrivalTime"), self._processor_timezone
             )
+            
             aimed_departure = _parse_iso_datetime(
                 _find_text(call, ns, "AimedDepartureTime"), self._processor_timezone
             )
@@ -458,6 +467,7 @@ class SiriEtLightPipeline(RealtimePipelineBase):
             ) or _parse_iso_datetime(
                 _find_text(call, ns, "ExpectedArrivalTime"), self._processor_timezone
             )
+
             actual_departure = _parse_iso_datetime(
                 _find_text(call, ns, "ActualDepartureTime"), self._processor_timezone
             ) or _parse_iso_datetime(
@@ -469,6 +479,7 @@ class SiriEtLightPipeline(RealtimePipelineBase):
             # act_departure → ExpectedDepartureTime → ExpectedArrivalTime → AimedDepartureTime → AimedArrivalTime
             if actual_arrival is None:
                 actual_arrival = actual_departure or aimed_arrival or aimed_departure
+
             if actual_departure is None:
                 actual_departure = actual_arrival or aimed_departure or aimed_arrival
 
@@ -481,6 +492,7 @@ class SiriEtLightPipeline(RealtimePipelineBase):
             placeholder = actual_arrival or actual_departure
             if nom_arrival is None:
                 nom_arrival = placeholder
+
             if nom_departure is None:
                 nom_departure = placeholder
 
@@ -646,40 +658,48 @@ class SiriEtLightPipeline(RealtimePipelineBase):
 # XML helpers
 # ---------------------------------------------------------------------------
 
-
 def _detect_namespace(root: ET.Element) -> dict[str, str]:
     """Detect the SIRI namespace from the root element tag and return an ns-map."""
+    
     tag = root.tag
     if tag.startswith("{"):
         ns_uri = tag[1 : tag.index("}")]
         return {"s": ns_uri}
+    
     return {}
 
 
 def _tag(ns: dict[str, str], local: str) -> str:
     """Build a fully qualified tag name using the detected namespace."""
+    
     if "s" in ns:
         return f"{{{ns['s']}}}{local}"
+    
     return local
 
 
 def _find_text(element: ET.Element, ns: dict[str, str], local: str) -> str | None:
     """Return the stripped text content of a direct child element, or None."""
+    
     child = element.find(_tag(ns, local))
     if child is None:
         return None
+    
     text = child.text
+    
     return text.strip() if text else None
 
 
 def _find_element(element: ET.Element, ns: dict[str, str], *path: str) -> ET.Element | None:
     """Traverse a sequence of child tag names and return the last found element."""
+    
     current: ET.Element = element
     for local in path:
         found = current.find(_tag(ns, local))
         if found is None:
             return None
         current = found
+
     return current
 
 
@@ -688,6 +708,7 @@ def _iter_estimated_vehicle_journeys(
     ns: dict[str, str],
 ) -> Iterator[ET.Element]:
     """Yield all EstimatedVehicleJourney elements from the feed."""
+    
     for et_delivery in root.iter(_tag(ns, "EstimatedTimetableDelivery")):
         for frame in et_delivery.iter(_tag(ns, "EstimatedJourneyVersionFrame")):
             yield from frame.findall(_tag(ns, "EstimatedVehicleJourney"))
@@ -695,14 +716,18 @@ def _iter_estimated_vehicle_journeys(
 
 def _collect_calls(journey: ET.Element, ns: dict[str, str]) -> list[ET.Element]:
     """Collect all EstimatedCall and RecordedCall children from EstimatedCalls, in order."""
+    
     calls: list[ET.Element] = []
     estimated_calls_elem = journey.find(_tag(ns, "EstimatedCalls"))
+    
     if estimated_calls_elem is None:
         return calls
+    
     for child in estimated_calls_elem:
         local = child.tag.split("}")[-1] if "}" in child.tag else child.tag
         if local in ("EstimatedCall", "RecordedCall"):
             calls.append(child)
+
     return calls
 
 
@@ -710,8 +735,8 @@ def _collect_calls(journey: ET.Element, ns: dict[str, str]) -> list[ET.Element]:
 # Time / date helpers
 # ---------------------------------------------------------------------------
 
-
 def _safe_zoneinfo(timezone_name: str) -> ZoneInfo:
+    
     try:
         return ZoneInfo(timezone_name)
     except ZoneInfoNotFoundError:
@@ -759,6 +784,7 @@ def _derive_operation_day(
        adjusted for overnight services via operation_day_end.
     3. fallback_date (today in processor timezone)
     """
+
     # 1. Try DataFrameRef
     framed_ref = journey.find(_tag(ns, "FramedVehicleJourneyRef"))
     if framed_ref is not None:
@@ -774,13 +800,17 @@ def _derive_operation_day(
         aimed_text = _find_text(first_call, ns, "AimedDepartureTime") or _find_text(
             first_call, ns, "AimedArrivalTime"
         )
+
         aimed_dt = _parse_iso_datetime(aimed_text, processor_timezone)
         if aimed_dt is not None:
+
             call_time = aimed_dt.time().replace(tzinfo=None)
+
             # If the call time is before or equal to operation_day_end, the trip belongs
             # to the previous calendar day (overnight service rule).
             if call_time <= operation_day_end:
                 return aimed_dt.date() - timedelta(days=1)
+            
             return aimed_dt.date()
 
     return fallback_date
@@ -788,6 +818,7 @@ def _derive_operation_day(
 
 def _parse_date(raw_value: str) -> date | None:
     """Parse a YYYY-MM-DD date string, returning None on failure."""
+    
     try:
         return date.fromisoformat(raw_value)
     except ValueError:
@@ -800,6 +831,7 @@ def _aimed_departure_or_arrival(
     processor_timezone: ZoneInfo,
 ) -> datetime | None:
     """Return aimed departure time, falling back to aimed arrival time."""
+    
     return _parse_iso_datetime(
         _find_text(call, ns, "AimedDepartureTime"), processor_timezone
     ) or _parse_iso_datetime(
@@ -813,6 +845,7 @@ def _aimed_arrival_or_departure(
     processor_timezone: ZoneInfo,
 ) -> datetime | None:
     """Return aimed arrival time, falling back to aimed departure time."""
+    
     return _parse_iso_datetime(
         _find_text(call, ns, "AimedArrivalTime"), processor_timezone
     ) or _parse_iso_datetime(
@@ -822,16 +855,20 @@ def _aimed_arrival_or_departure(
 
 def _strip_appendix(value: str, pattern: str | None) -> str:
     """Remove a data-platform appendix from an ID string if the pattern is set."""
+    
     if not pattern or not value:
         return value
+    
     idx = value.find(pattern)
     if idx >= 0:
         return value[:idx]
+    
     return value
 
 
 def _matches_filter(value: str, filter_rules: tuple[FilterEntryConfig, ...]) -> bool:
     """Apply include/exclude filter rules against a string value."""
+    
     include_rules = [r for r in filter_rules if r.type == "include"]
     exclude_rules = [r for r in filter_rules if r.type == "exclude"]
 
