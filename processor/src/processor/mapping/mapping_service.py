@@ -145,7 +145,7 @@ class MappingService(MappingServiceInterface):
         return value
 
     def _read_mapping_csv(self, csv_path: Path) -> tuple[tuple[str, str], ...]:
-        with csv_path.open("r", encoding="utf-8", newline="") as file_obj:
+        with csv_path.open("r", encoding="utf-8-sig", newline="") as file_obj:
             reader = csv.DictReader(file_obj)
             rows: list[tuple[str, str]] = []
             for row in reader:
@@ -153,6 +153,7 @@ class MappingService(MappingServiceInterface):
                 raw_value = (row.get("value") or "").strip()
                 if not raw_key:
                     continue
+                
                 rows.append((raw_key, raw_value))
 
         return tuple(rows)
