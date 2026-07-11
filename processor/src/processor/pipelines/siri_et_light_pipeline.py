@@ -715,18 +715,31 @@ def _iter_estimated_vehicle_journeys(
 
 
 def _collect_calls(journey: ET.Element, ns: dict[str, str]) -> list[ET.Element]:
-    """Collect all EstimatedCall and RecordedCall children from EstimatedCalls, in order."""
-    
+    """Collect all RecordedCall and EstimatedCall elements in stop order.
+
+    SIRI structures them in two separate containers:
+    - ``RecordedCalls`` → ``RecordedCall`` elements  (past stops, always first)
+    - ``EstimatedCalls`` → ``EstimatedCall`` elements (future/current stops)
+
+    Both containers are read and concatenated so that the resulting list
+    preserves the correct chronological stop order.
+    """
+
     calls: list[ET.Element] = []
+
+    recorded_calls_elem = journey.find(_tag(ns, "RecordedCalls"))
+    if recorded_calls_elem is not None:
+        for child in recorded_calls_elem:
+            local = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            if local == "RecordedCall":
+                calls.append(child)
+
     estimated_calls_elem = journey.find(_tag(ns, "EstimatedCalls"))
-    
-    if estimated_calls_elem is None:
-        return calls
-    
-    for child in estimated_calls_elem:
-        local = child.tag.split("}")[-1] if "}" in child.tag else child.tag
-        if local in ("EstimatedCall", "RecordedCall"):
-            calls.append(child)
+    if estimated_calls_elem is not None:
+        for child in estimated_calls_elem:
+            local = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            if local == "EstimatedCall":
+                calls.append(child)
 
     return calls
 

@@ -803,7 +803,8 @@ class SiriEtLightPipelineTests(unittest.IsolatedAsyncioTestCase):
             f'<FramedVehicleJourneyRef><DataFrameRef>2026-07-10</DataFrameRef></FramedVehicleJourneyRef>'
             f'<Monitored>true</Monitored>'
             f'<IsCompleteStopSequence>true</IsCompleteStopSequence>'
-            f'<EstimatedCalls>{recorded_call}{estimated_call}</EstimatedCalls>'
+            f'<RecordedCalls>{recorded_call}</RecordedCalls>'
+            f'<EstimatedCalls>{estimated_call}</EstimatedCalls>'
             f'</EstimatedVehicleJourney>'
         )
         payload = _siri_xml(journey_xml)
