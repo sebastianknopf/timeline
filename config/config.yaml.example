@@ -12,14 +12,11 @@ instance:
           routes:
             - match: "*-route1"
               type: "include"
-              mapping:
-                stops: "mapping/stops.csv"
-                routes: "mapping/routes.csv"
             - match: "*-route2"
               type: "exclude"
-              mapping:
-                stops: "/etc/mapping/stops2.csv"
-                routes: "/etc/mapping/routes2.csv"
+        mapping:
+          stops: "/etc/mapping/stops2.csv"
+          routes: "/etc/mapping/routes2.csv"
         parameters:
           fallback_agency_id: "UNKNOWN-AGENCY"
           fallback_agency_name: "Unknown Agency"
@@ -37,14 +34,11 @@ instance:
           operators:
             - match: "*-operator1"
               type: "include"
-              mapping:
-                stops: "mapping/stops.csv"
-                routes: "mapping/routes.csv"
             - match: "*-operator2"
               type: "exclude"
-              mapping:
-                stops: "/etc/mapping/stops2.csv"
-                routes: "/etc/mapping/routes2.csv"
+        mapping:
+          stops: "/etc/mapping/stops2.csv"
+          routes: "/etc/mapping/routes2.csv"
         authentication:
           cert: "security/client.crt"
           key: "security/client.key"

@@ -43,6 +43,19 @@ Run:
 docker compose up --build
 ```
 
+### Optional: Processor Debug Mode
+
+Debugger support for the processor is disabled by default.
+
+To enable debug mode, include the debug override file:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d --build
+```
+
+This starts the processor with debugpy and publishes `PROCESSOR_DEBUG_PORT` (default `5678`) for VS Code attach.
+The processor process is paused at startup and only continues after a debugger attaches.
+
 ### grafana Profile
 
 Starts central Grafana with full provisioning (datasources and dashboard):

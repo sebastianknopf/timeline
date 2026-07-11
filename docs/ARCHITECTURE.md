@@ -53,7 +53,11 @@ The following container ports are published on the host and can be reached by ex
 
 Loki's port 3100 is exposed only within the Docker Compose network so that Promtail and Grafana can reach it. It is not published on the host.
 
-The processor and Promtail do not publish host ports.
+Promtail does not publish any host ports.
+
+Processor debugging is opt-in through the compose override file `docker-compose.debug.yml`.
+When started with that override, the processor listens with debugpy on container port `5678` and publishes it as `PROCESSOR_DEBUG_PORT` (default `5678`) on the host.
+The debug command uses `--wait-for-client`, so pipeline execution starts only after a debugger has attached.
 
 ## Data Flow
 

@@ -1,0 +1,15 @@
+services:
+  processor:
+    ports:
+      - "${PROCESSOR_DEBUG_PORT:-5678}:${PROCESSOR_DEBUG_PORT:-5678}"
+    command:
+      [
+        "python",
+        "-m",
+        "debugpy",
+        "--listen",
+        "0.0.0.0:${PROCESSOR_DEBUG_PORT:-5678}",
+        "--wait-for-client",
+        "-m",
+        "processor",
+      ]
